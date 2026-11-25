@@ -23,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
+from .telemetry import RuntimeMiddleware, Telemetry, mark_client, mark_failure
 from .tunnel_access import TunnelAccess, TunnelMiddleware
 
 CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
@@ -285,6 +286,11 @@ def build_service(
 ):
     auth = Authorization(kind)
     tunnel = TunnelAccess()
+    telemetry = Telemetry(
+        OPENAPI["paths"], [item["name"] for item in CATALOG["tools"]], model_control
+    )
+    if model_control is not None:
+        model_control.telemetry = telemetry
     tools = {}
     scopes = {}
     for entry in CATALOG["tools"]:
@@ -314,8 +320,10 @@ def build_service(
             result = {"ok": True, "data": data}
             validate(result, tool.output_schema, status=502)
         except Problem as exc:
+            mark_failure()
             result = {"ok": False, "problem": exc.body()}
         except Exception as exc:
+            mark_failure()
             LOG.error(
                 "Unhandled MCP failure request=%s type=%s",
                 REQUEST_ID.get(),
@@ -357,12 +365,20 @@ def build_service(
 
     @asynccontextmanager
     async def lifespan(_app):
+        import asyncio
+
+        telemetry.event("service", "starting")
         async with server.session_manager.run():
             if start:
                 await start()
+            telemetry.event("service", "running")
+            sampler = asyncio.create_task(telemetry.sample())
             try:
                 yield
             finally:
+                telemetry.event("service", "stopping")
+                sampler.cancel()
+                await asyncio.gather(sampler, return_exceptions=True)
                 if shutdown:
                     await shutdown()
 
@@ -379,6 +395,7 @@ def build_service(
                     caller_token = CALLER.set(
                         await auth.authenticate(request.headers, scope=request.scope)
                     )
+                    mark_client(request.scope, CALLER.get())
                 if request.url.path == "/mcp" and request.method == "POST":
                     supplied = request.headers.get("mcp-protocol-version")
                     if supplied != PROTOCOL:
@@ -448,6 +465,19 @@ def build_service(
 
     if model_control is not None:
 
+        @app.get("/v1/control/runtime")
+        async def runtime_telemetry(request: Request):
+            CALLER.get().require([f"{kind}:manage"])
+            args = request.query_params
+            window = args.get("window_seconds", "300")
+            if window not in {"60", "300", "900"}:
+                raise Problem(
+                    422, "invalid_window", "Choose a window of 60, 300, or 900 seconds."
+                )
+            return telemetry.snapshot(
+                int(window), args.get("model"), args.get("endpoint")
+            )
+
         @app.get("/v1/control/models")
         async def installed_models():
             CALLER.get().require([f"{kind}:manage"])
@@ -499,9 +529,11 @@ def build_service(
             "MCP-Protocol-Version",
             "Mcp-Method",
             "Mcp-Name",
+            "X-VoxRN-Client-ID",
         ],
         expose_headers=["X-Request-ID", "Location", "Retry-After", "WWW-Authenticate"],
     )
+    app.add_middleware(RuntimeMiddleware, telemetry=telemetry)
     return app, mcp
 
 

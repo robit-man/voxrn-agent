@@ -44,7 +44,10 @@ class Entry:
             if self.error_detail:
                 result["error_detail"] = self.error_detail
         if hasattr(self.adapter, "installation"):
-            result["installation"] = self.adapter.installation()
+            installation = self.adapter.installation()
+            if self.state != "loading":
+                installation.pop("progress", None)
+            result["installation"] = installation
         return result
 
 
@@ -70,6 +73,7 @@ class ModelControl:
         self.unload = unload
         self._lock_file = None
         self._stopping = False
+        self.telemetry = None
 
     def _read_state(self):
         if not self.state_path.exists():
@@ -216,17 +220,28 @@ class ModelControl:
                 "The selected model is not ready.",
                 retryable=entry.enabled and not self._stopping,
             )
+        started = self.telemetry.model_enter(model_id) if self.telemetry else None
+        failed = True
         entry.active_requests += 1
         entry.idle.clear()
         try:
             yield entry.adapter
+            failed = False
         finally:
+            if self.telemetry:
+                self.telemetry.model_exit(model_id, started, failed)
             entry.active_requests -= 1
             if entry.active_requests == 0:
                 entry.idle.set()
 
     def _wanted(self, entry):
         return entry.enabled and not self._stopping
+
+    def _state(self, entry, state, detail=None):
+        if entry.state != state:
+            entry.state = state
+            if self.telemetry:
+                self.telemetry.event(entry.identity["model"], state, detail)
 
     def _schedule(self, entry):
         if (
@@ -236,19 +251,19 @@ class ModelControl:
         ):
             entry.adapter.cancel_preparing()
         if not self._wanted(entry) and entry.loaded and entry.state == "ready":
-            entry.state = "draining"
+            self._state(entry, "draining")
         if entry.task is None or entry.task.done():
             if self._wanted(entry) and not entry.loaded and not entry.needs_cleanup:
-                entry.state = "loading"
+                self._state(entry, "loading")
             entry.task = asyncio.create_task(self._drive(entry))
         return entry.task
 
     def _fail(self, entry, action, error):
-        entry.state = "failed"
         entry.error = (
             error.code if isinstance(error, Problem) else f"model_{action}_failed"
         )
         entry.error_detail = error.detail if isinstance(error, Problem) else None
+        self._state(entry, "failed", entry.error)
         LOG.error(
             "Model %s %s failed (%s)",
             entry.identity["model"],
@@ -257,7 +272,7 @@ class ModelControl:
         )
 
     async def _cleanup(self, entry):
-        entry.state = "draining"
+        self._state(entry, "draining")
         await entry.idle.wait()
         try:
             await self.unload(entry.adapter)
@@ -277,14 +292,14 @@ class ModelControl:
                     return
                 continue
             if not wanted:
-                entry.state = "disabled"
+                self._state(entry, "disabled")
                 entry.error = None
                 return
             if entry.loaded:
-                entry.state = "ready"
+                self._state(entry, "ready")
                 entry.error = None
                 return
-            entry.state = "loading"
+            self._state(entry, "loading")
             entry.error = None
             try:
                 await self.load(entry.adapter)

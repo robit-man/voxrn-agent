@@ -6,6 +6,7 @@ The version 1.0 contract describes the target API. The standalone runtime expose
 
 - [Model profiles, control and uninstall](MODEL_CONTROL.md)
 - [Cloudflare sessions and browser links](TUNNEL.md)
+- [Operational quality specification](QUALITY_SPEC.md)
 - [Open-model research and ranked candidates](MODEL_REVIEW.md)
 - [Standalone serving guide](SERVING.md)
 - [Specification, usage and acceptance criteria](SPEC.md)

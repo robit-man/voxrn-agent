@@ -10,6 +10,9 @@ let audioUrl;
 let tunnelMode;
 let runtimeIdentity;
 let voices = [];
+let capabilityModels = new Map();
+let runtimeHealth = new Map();
+const browserClient = crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2);
 const readyModelNames = { current: [], next: [] };
 
 function option(parent, value, label = value) {
@@ -64,7 +67,7 @@ function playAudio(audio) {
 }
 
 function runtimeHeaders() {
-  const headers = new Headers();
+  const headers = new Headers({"X-VoxRN-Client-ID": browserClient});
   const token = field("token").value.trim();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return headers;
@@ -104,6 +107,7 @@ async function fetchCapabilities() {
   if (`voxrn-${limits.service}` !== runtimeIdentity) {
     throw new Error("This endpoint serves a different VoxRN API.");
   }
+  capabilityModels = new Map(limits.models.map(row => [row.identity.model, row]));
   const names = limits.models.map(row => row.identity.model);
   updateSelect(field("model"), names, readyModelNames, "Use request body");
   document.dispatchEvent(new CustomEvent("voxrn:capabilities", { detail: limits }));
@@ -118,8 +122,8 @@ async function connect() {
     if (new URL(serviceUrl()).hostname.endsWith(".trycloudflare.com")) tunnelMode = "quick";
     const limits = await fetchCapabilities();
     if (limits.service === "tts") voices = (await fetchRuntime("/v1/voices")).voices;
-    document.getElementById("model-control").open = true;
     await refreshModels();
+    document.dispatchEvent(new Event("voxrn:connected"));
     field("share").hidden = !tunnelMode;
     const note = tunnelMode === "quick" ? " · Quick Tunnel · SSE requires a named tunnel" : "";
     status.textContent = `Connected · ${limits.models.length} ready models${note}`;
@@ -254,9 +258,7 @@ function httpRequest(config, headers) {
 
 async function modelControlRequest(model, enabled) {
   const path = "/v1/control/models" + (model ? `/${encodeURIComponent(model)}` : "");
-  const headers = new Headers();
-  const token = field("token").value.trim();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const headers = runtimeHeaders();
   if (model) headers.set("Content-Type", "application/json");
   const response = await fetch(serviceUrl() + path, {
     method: model ? "PUT" : "GET",
@@ -273,6 +275,197 @@ let modelRefreshTimer;
 let modelRefreshVersion = 0;
 const modelItems = new Map();
 
+const phaseLabels = {
+  checking: "Checking system capacity",
+  installing_environment: "Preparing isolated environment",
+  downloading_weights: "Downloading weights",
+  verifying: "Verifying model files",
+  starting_runtime: "Starting the inference runtime",
+};
+const stateLabels = { disabled: "Disabled", ready: "Ready", loading: "Loading", draining: "Draining", failed: "Failed" };
+const diskLabels = { not_installed: "Weights not installed", partial: "Partial files on disk",
+  installed: "Weights installed", missing: "Installation incomplete" };
+
+function displayBytes(bytes) {
+  if (typeof bytes !== "number") return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  const power = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(Math.max(1, bytes)) / Math.log(1024))));
+  return numberFormat.format(bytes / 1024 ** power) + " " + units[power];
+}
+
+const numberFormat = new Intl.NumberFormat(undefined, {maximumFractionDigits: 1});
+
+function element(tag, className, value) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (value !== undefined) node.textContent = value;
+  return node;
+}
+
+function labeledValues(node, rows) {
+  node.replaceChildren(...rows.flatMap(([key, value]) => [element("dt", "", key), element("dd", "", value)]));
+}
+
+function healthColor(score) {
+  const stops = [[0, 185, 48, 66], [33, 192, 91, 34], [62, 166, 121, 19], [100, 26, 129, 89]];
+  const index = stops.findIndex(row => row[0] >= score);
+  const high = stops[Math.max(1, index)];
+  const low = stops[Math.max(0, index - 1)];
+  const mix = (score - low[0]) / (high[0] - low[0]);
+  return "rgb(" + low.slice(1).map((value, i) => Math.round(value + (high[i + 1] - value) * mix)).join(",") + ")";
+}
+
+function updateModelHealth(item, health) {
+  item.measure.hidden = !health;
+  if (!health) return;
+  item.measureName.textContent = health.label + " · " + health.score;
+  item.measureSource.textContent = health.audio_rtf === null || health.audio_rtf === undefined
+    ? health.basis : "RTF " + numberFormat.format(health.audio_rtf) + "×";
+  item.meter.setAttribute("aria-valuenow", String(health.score));
+  item.meter.setAttribute("aria-valuetext", health.label + ", " + health.score + " out of 100");
+  item.meter.title = health.detail.join(" · ");
+  item.fill.style.width = health.score + "%";
+  item.fill.style.backgroundColor = healthColor(health.score);
+}
+
+function showModelTest(model) {
+  const features = capabilityModels.get(model)?.features;
+  if (features?.live && !features.file && document.getElementById("live-asr")) {
+    const live = document.getElementById("live-asr");
+    live.open = true;
+    document.getElementById("live-model").value = model;
+    live.scrollIntoView({block: "center"});
+    document.getElementById("live-start").focus({preventScroll: true});
+    return;
+  }
+  const operations = {"voxrn-asr": "POST /v1/audio/transcriptions", "voxrn-tts": "POST /v1/audio/speech",
+    "voxrn-agent": "POST /v1/chat/completions"};
+  field("model").value = model;
+  operation.value = operations[runtimeIdentity];
+  operation.dispatchEvent(new Event("change"));
+  form.scrollIntoView({block: "center"});
+  operation.focus({preventScroll: true});
+}
+
+function makeModelRow(model, status, list) {
+  const item = element("article", "model-row");
+  const core = element("div", "model-core");
+  const heading = element("h3", "", model);
+  const characteristics = element("p", "model-characteristics");
+  const storage = element("p", "model-storage");
+  core.append(heading, characteristics, storage);
+  const measure = element("div", "model-health");
+  const captions = element("div", "health-caption");
+  const measureName = element("strong", "");
+  const measureSource = element("span", "");
+  captions.append(measureName, measureSource);
+  const meter = element("div", "health-track");
+  meter.setAttribute("role", "meter");
+  meter.setAttribute("aria-label", model + " resource fit");
+  meter.setAttribute("aria-valuemin", "0");
+  meter.setAttribute("aria-valuemax", "100");
+  const fill = element("span", "health-fill");
+  meter.append(fill);
+  measure.append(captions, meter);
+  core.append(measure);
+  const commands = element("div", "model-commands");
+  const chip = element("span", "model-status");
+  const buttons = element("div", "actions");
+  const toggle = element("button", "primary");
+  const details = element("button", "", "Details");
+  const test = element("button", "", "Test");
+  const retry = element("button", "", "Retry");
+  for (const control of [toggle, details, test, retry]) control.type = "button";
+  const more = element("dl", "model-more");
+  const error = element("p", "model-error");
+  more.hidden = true;
+  details.setAttribute("aria-expanded", "false");
+  details.addEventListener("click", () => {
+    more.hidden = !more.hidden;
+    details.setAttribute("aria-expanded", String(!more.hidden));
+  });
+  test.addEventListener("click", () => showModelTest(model));
+  async function change(enabled) {
+    toggle.disabled = retry.disabled = true;
+    try {
+      await modelControlRequest(model, enabled);
+      await refreshModels();
+      await fetchCapabilities();
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      toggle.disabled = retry.disabled = false;
+    }
+  }
+  toggle.addEventListener("click", () => change(toggle.dataset.enabled !== "true"));
+  retry.addEventListener("click", () => change(true));
+  buttons.append(details, test, retry, toggle);
+  commands.append(chip, buttons);
+  const progress = element("div", "model-progress");
+  const bar = element("progress", "");
+  bar.setAttribute("aria-label", model + " installation progress");
+  const progressLabel = element("span", "");
+  progress.append(progressLabel, bar);
+  item.append(core, commands, progress, error, more);
+  list.append(item);
+  return {item, characteristics, storage, chip, toggle, test, retry, more, error, progress, bar, progressLabel,
+    measure, measureName, measureSource, meter, fill};
+}
+
+function updateModelRow(item, row) {
+  const {identity, installation: plan} = row;
+  const features = capabilityModels.get(identity.model)?.features || {};
+  const capabilities = [
+    features.live && "Live audio", features.file && "File ASR", features.stream_pcm && "PCM stream",
+    features.structured_outputs && "Structured output", features.languages?.length ? features.languages.length + " languages" : "",
+  ].filter(Boolean);
+  item.characteristics.textContent = [identity.engine, plan?.hardware === "cuda" ? "CUDA" : (plan?.hardware === "cpu" ? "CPU" : ""),
+    ...capabilities].filter(Boolean).join(" · ");
+  item.storage.textContent = plan ? [
+    diskLabels[plan.disk_state] || (plan.installed ? "Weights installed" : "Weights not installed"),
+    plan.model_bytes ? displayBytes(plan.model_bytes) + " on disk" : "",
+    !plan.installed ? displayBytes(plan.disk_mib * 1024 ** 2) + " required" : "",
+  ].filter(Boolean).join(" · ") : (row.active_requests ? row.active_requests + " active" : "");
+  item.chip.dataset.state = row.state;
+  item.chip.textContent = stateLabels[row.state] || row.state;
+  item.toggle.dataset.enabled = String(row.enabled);
+  item.toggle.textContent = row.enabled ? "Disable" : "Enable";
+  item.toggle.classList.toggle("primary", !row.enabled);
+  item.test.hidden = row.state !== "ready";
+  item.retry.hidden = row.state !== "failed" || !row.enabled;
+  item.error.textContent = row.error_detail || row.error_code || "";
+  item.error.hidden = !item.error.textContent;
+  const progress = plan?.progress;
+  item.progress.hidden = row.state !== "loading";
+  item.bar.removeAttribute("value");
+  let label = phaseLabels[progress?.phase] || "Loading model";
+  if (progress?.total > 0) {
+    if (progress.unit === "bytes") {
+      item.bar.max = progress.total;
+      item.bar.value = progress.completed;
+      label += " · " + displayBytes(progress.completed) + " / " + displayBytes(progress.total) + " reported";
+    } else {
+      label += " · " + progress.completed + " of " + progress.total + " assets verified";
+    }
+  }
+  item.progressLabel.textContent = label;
+  const health = runtimeHealth.get(identity.model);
+  updateModelHealth(item, health);
+  labeledValues(item.more, [
+    ["Model revision", identity.model_revision], ["Engine revision", identity.engine_revision],
+    ...(plan ? [["Runtime", plan.runtime === "python-venv" ? "Isolated Python environment" : "Ollama"],
+      ["Environment", plan.environment_present ? "Present" : "Not installed"],
+      ["Host memory budget", displayBytes(plan.memory_mib * 1024 ** 2)],
+      ...(plan.vram_mib ? [["GPU memory budget", displayBytes(plan.vram_mib * 1024 ** 2)]] : [])] : []),
+    ["Active requests", row.active_requests],
+    ...(health ? [
+      ["Score inputs", health.detail.join(" · ")],
+      ["Observed model memory", typeof health.rss_bytes === "number" ? displayBytes(health.rss_bytes) : "Awaiting measurement"],
+      ...(runtimeIdentity !== "voxrn-agent" ? [["Audio real-time factor", typeof health.audio_rtf === "number" ? numberFormat.format(health.audio_rtf) + "×" : "Awaiting a completed audio request"]] : []),
+    ] : []),
+  ]);
+}
+
 async function refreshModels() {
   clearTimeout(modelRefreshTimer);
   const version = ++modelRefreshVersion;
@@ -285,35 +478,10 @@ async function refreshModels() {
     for (const row of models) {
       const model = row.identity.model;
       current.add(model);
-      if (!modelItems.has(model)) {
-        const item = document.createElement("li");
-        const label = document.createTextNode("");
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.addEventListener("click", async () => {
-          toggle.disabled = true;
-          try {
-            await modelControlRequest(model, toggle.dataset.enabled !== "true");
-            await refreshModels();
-            await fetchCapabilities();
-          } catch (error) {
-            status.textContent = error.message;
-          } finally {
-            toggle.disabled = false;
-          }
-        });
-        item.append(label, toggle);
-        list.append(item);
-        modelItems.set(model, {item, label, toggle});
-      }
-      const {label, toggle} = modelItems.get(model);
-      const plan = row.installation;
-      const install = plan && !plan.installed ? ` · download on enable (${plan.disk_mib} MiB disk)` : "";
-      const hardware = plan?.hardware === "cuda" ? " · requires CUDA" : "";
-      const failure = row.error_detail || row.error_code || "";
-      label.textContent = `${model} · ${row.state} · ${row.active_requests} active${install}${hardware} ${failure} `;
-      toggle.dataset.enabled = String(row.enabled);
-      toggle.textContent = row.enabled ? "Disable" : "Enable";
+      if (!modelItems.has(model)) modelItems.set(model, makeModelRow(model, status, list));
+      const item = modelItems.get(model);
+      item.row = row;
+      updateModelRow(item, row);
     }
     for (const [model, {item}] of modelItems) {
       if (!current.has(model)) {
@@ -321,11 +489,12 @@ async function refreshModels() {
         modelItems.delete(model);
       }
     }
-    status.textContent = models.length ? "" : "No installed model profiles.";
+    status.textContent = models.length ? "" : "The runtime has no model profiles.";
     if (models.some(row => ["loading", "draining"].includes(row.state))) {
       modelRefreshTimer = setTimeout(async () => {
         await refreshModels();
         await fetchCapabilities().catch(() => {});
+        if (runtimeIdentity === "voxrn-tts") voices = (await fetchRuntime("/v1/voices").catch(() => ({voices}))).voices;
       }, 750);
     }
   } catch (error) {
@@ -333,6 +502,10 @@ async function refreshModels() {
   }
 }
 
+document.addEventListener("voxrn:health", event => {
+  runtimeHealth = new Map(Object.entries(event.detail));
+  for (const item of modelItems.values()) updateModelRow(item, item.row);
+});
 document.getElementById("models-refresh").addEventListener("click", refreshModels);
 
 async function loadConsole() {
@@ -400,9 +573,7 @@ async function loadConsole() {
     if (request) return;
     clearResponse();
     const config = configs.get(operation.value);
-    const token = field("token").value.trim();
-    const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const headers = runtimeHeaders();
     request = new AbortController();
     field("run").disabled = true;
     field("stop").disabled = false;

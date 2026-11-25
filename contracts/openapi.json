@@ -1038,6 +1038,72 @@
           }
         }
       }
+    },
+    "/v1/control/runtime": {
+      "get": {
+        "operationId": "getRuntimeTelemetry",
+        "summary": "Inspect utilization of this runtime, models, endpoints and lifecycle",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded in-memory runtime measurements without credentials or payloads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeTelemetry"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "window_seconds",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                60,
+                300,
+                900
+              ],
+              "default": 300
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endpoint",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2230,6 +2296,53 @@
               "vram_mib": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "disk_state": {
+                "enum": [
+                  "not_installed",
+                  "partial",
+                  "installed",
+                  "missing"
+                ]
+              },
+              "environment_present": {
+                "type": "boolean"
+              },
+              "model_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "progress": {
+                "type": "object",
+                "required": [
+                  "phase"
+                ],
+                "properties": {
+                  "phase": {
+                    "enum": [
+                      "checking",
+                      "installing_environment",
+                      "downloading_weights",
+                      "verifying",
+                      "starting_runtime"
+                    ]
+                  },
+                  "completed": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unit": {
+                    "enum": [
+                      "bytes",
+                      "assets"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -2268,6 +2381,148 @@
           "enabled"
         ],
         "additionalProperties": false
+      },
+      "RuntimeTelemetry": {
+        "type": "object",
+        "required": [
+          "since",
+          "window_seconds",
+          "client_window_seconds",
+          "clients",
+          "websockets",
+          "active_requests",
+          "host",
+          "samples",
+          "endpoints",
+          "models",
+          "lifecycle",
+          "endpoint_options",
+          "model_options",
+          "health"
+        ],
+        "properties": {
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "lifecycle": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "endpoint_options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model_options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "window_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "client_window_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clients": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "websockets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active_requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "since": {
+            "type": "number"
+          },
+          "host": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "health": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "score",
+                "label",
+                "basis",
+                "detail",
+                "rss_bytes",
+                "audio_rtf"
+              ],
+              "properties": {
+                "score": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "label": {
+                  "enum": [
+                    "Excellent",
+                    "Good",
+                    "Nominal",
+                    "Bad",
+                    "Unusable"
+                  ]
+                },
+                "basis": {
+                  "enum": [
+                    "Estimated",
+                    "Measured + estimate"
+                  ]
+                },
+                "detail": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "rss_bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "audio_rtf": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
       }
     },
     "responses": {

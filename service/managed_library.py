@@ -35,14 +35,76 @@ class ManagedAdapter:
 
     def installation(self):
         spec = self.spec
+        folder = self.descriptor.parent
+        receipt = self._metadata(self.descriptor)
+        engine = "ollama" if "ollama" in spec else "python-venv"
+        if engine == "ollama":
+            tag = spec["ollama"]["tag"]
+            name, _, variant = tag.rpartition(":")
+            manifest = (
+                self.settings.parent
+                / "models/ollama/manifests/registry.ollama.ai/library"
+                / name
+                / variant
+            )
+            model_bytes = receipt.get("model_bytes", 0) if manifest.is_file() else 0
+            present = manifest.is_file()
+            environment_present = Path(
+                self._metadata(self.settings).get("ollama_binary", "/dev/null")
+            ).is_file()
+        else:
+            model_bytes = self._file_bytes(folder / "assets") + self._file_bytes(
+                folder / "files"
+            )
+            present = bool(receipt.get("environment")) and all(
+                Path(value).exists()
+                for value in receipt["environment"].values()
+                if value.startswith("/")
+            )
+            environment_present = (folder / "venv/bin/python").is_file()
+        installed = bool(receipt) and present and environment_present
+        disk_state = (
+            "installed"
+            if installed
+            else "missing"
+            if receipt
+            else "partial"
+            if model_bytes or environment_present and engine != "ollama"
+            else "not_installed"
+        )
+        progress = self._metadata(
+            self.settings.parent / "run" / "model-progress" / (spec["id"] + ".json")
+        )
         return {
-            "installed": self.descriptor.is_file(),
-            "runtime": "ollama" if "ollama" in spec else "python-venv",
+            "installed": installed,
+            "runtime": engine,
             "hardware": spec.get("hardware", "cpu"),
             "disk_mib": spec["disk_mib"],
             "memory_mib": spec["memory_mib"],
+            "disk_state": disk_state,
+            "environment_present": environment_present,
+            "model_bytes": model_bytes,
+            **({"progress": progress} if progress else {}),
             **({"vram_mib": spec["vram_mib"]} if "vram_mib" in spec else {}),
         }
+
+    @staticmethod
+    def _metadata(path):
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    @staticmethod
+    def _file_bytes(path):
+        total = 0
+        for entry in path.rglob("*"):
+            try:
+                if not entry.is_symlink() and entry.is_file():
+                    total += entry.stat().st_blocks * 512
+            except OSError:
+                continue
+        return total
 
     def cancel_preparing(self):
         self.interrupt = True

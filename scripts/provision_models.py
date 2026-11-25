@@ -158,7 +158,7 @@ def fetch_snapshot(python, directory, asset):
     return snapshot
 
 
-def provision_profiles(prefix, base_python, selection, specs):
+def provision_profiles(prefix, base_python, selection, specs, report=None):
     result = {}
     for key, enabled_features in selection.items():
         profile = specs[key]
@@ -166,6 +166,8 @@ def provision_profiles(prefix, base_python, selection, specs):
         destination.mkdir(mode=0o700, parents=True, exist_ok=True)
         python = base_python
         if requirement := profile.get("requirements"):
+            if report:
+                report("installing_environment")
             requirement = (ROOT / requirement).resolve()
             if not requirement.is_relative_to(ROOT) or not requirement.is_file():
                 raise RuntimeError(f"Requirements for {key} must reside in the repo.")
@@ -193,9 +195,14 @@ def provision_profiles(prefix, base_python, selection, specs):
             set_variable(result, key_env, str(python))
             if alias := profile.get("python_env"):
                 set_variable(result, alias, str(python))
-        for asset in profile.get("assets", []):
-            if asset.get("feature") and asset["feature"] not in enabled_features:
-                continue
+        assets = [
+            asset
+            for asset in profile.get("assets", [])
+            if not asset.get("feature") or asset["feature"] in enabled_features
+        ]
+        for index, asset in enumerate(assets):
+            if report:
+                report("downloading_weights", index, len(assets), "assets")
             if "url" in asset:
                 artifact = verified_file(destination / "files", asset)
             else:

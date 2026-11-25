@@ -8,7 +8,9 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+from urllib.request import build_opener, ProxyHandler, Request
 from contextlib import contextmanager
 
 from host import http_json, load_settings, ollama_env, wait_endpoint, write_settings
@@ -128,7 +130,36 @@ def require_capacity(prefix, spec, *, installed=False, activation=True):
         require_gpu(spec)
 
 
-def install_ollama(path, config, spec):
+def pull_ollama(base, tag, report):
+    opener = build_opener(ProxyHandler({}))
+    request = Request(
+        base + "/api/pull",
+        data=json.dumps({"model": tag, "stream": True}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    layers = {}
+    last_report = 0
+    with opener.open(request, timeout=60) as stream:
+        for line in stream:
+            event = json.loads(line)
+            if event.get("error"):
+                raise RuntimeError("Ollama reported a pull error.")
+            if event.get("digest") and type(event.get("total")) is int:
+                layers[event["digest"]] = (event.get("completed", 0), event["total"])
+            if layers and time.monotonic() - last_report >= 0.5:
+                report(
+                    "downloading_weights",
+                    sum(row[0] for row in layers.values()),
+                    sum(row[1] for row in layers.values()),
+                    "bytes",
+                )
+                last_report = time.monotonic()
+            if event.get("status") == "success":
+                return
+    raise RuntimeError("The Ollama pull ended before its success receipt.")
+
+
+def install_ollama(path, config, spec, report=None):
     profile = spec["ollama"]
     base = f"http://127.0.0.1:{config['ollama_port']}"
     if (
@@ -138,28 +169,47 @@ def install_ollama(path, config, spec):
         raise RuntimeError("Unexpected Ollama runtime revision.")
 
     def matches():
-        return any(
-            item["name"] == profile["tag"] and item["digest"] == profile["digest"]
-            for item in http_json(base + "/api/tags")["models"]
+        return next(
+            (
+                item
+                for item in http_json(base + "/api/tags")["models"]
+                if item["name"] == profile["tag"]
+                and item["digest"] == profile["digest"]
+            ),
+            None,
         )
 
     if not matches():
-        subprocess.run(
-            [config["ollama_binary"], "pull", profile["tag"]],
-            env=ollama_env(path, config),
-            stdout=sys.stderr,
-            stderr=sys.stderr,
-            check=True,
-            timeout=3600,
-        )
-    if not matches():
+        if report:
+            report("downloading_weights")
+            pull_ollama(base, profile["tag"], report)
+        else:
+            subprocess.run(
+                [config["ollama_binary"], "pull", profile["tag"]],
+                env=ollama_env(path, config),
+                stdout=sys.stderr,
+                stderr=sys.stderr,
+                check=True,
+                timeout=3600,
+            )
+    fitted = matches()
+    if fitted is None:
         raise RuntimeError("The pulled model did not match its exact manifest digest.")
-    return {}
+    return fitted.get("size")
 
 
 def install(path, name, config, spec, *, features=(), activate=True, python=None):
     prefix = path.parent
     descriptor = prefix / "profiles" / name / "installation.json"
+
+    def report(phase, completed=None, total=None, unit=None):
+        if activate:
+            info = {"phase": phase}
+            if unit:
+                info.update(completed=completed, total=total, unit=unit)
+            write_settings(prefix / "run" / "model-progress" / (name + ".json"), info)
+
+    report("checking")
     current = load_settings(descriptor) if descriptor.is_file() else {}
     valid = current.get("profile") == spec and current.get("features") == list(features)
     environment = current.get("environment", {}) if valid else {}
@@ -167,18 +217,26 @@ def install(path, name, config, spec, *, features=(), activate=True, python=None
         Path(value).exists() for value in environment.values() if value.startswith("/")
     )
     require_capacity(prefix, spec, installed=valid, activation=activate)
+    model_bytes = None
     if "ollama" in spec:
-        environment = install_ollama(path, config, spec)
+        model_bytes = install_ollama(path, config, spec, report if activate else None)
+        environment = {}
     elif not valid:
         environment = provision_profiles(
-            prefix, Path(python or sys.executable), {name: list(features)}, {name: spec}
+            prefix,
+            Path(python or sys.executable),
+            {name: list(features)},
+            {name: spec},
+            report,
         )
+    report("verifying")
     if not valid and activate:
         require_capacity(prefix, spec, installed=True)
-    write_settings(
-        descriptor,
-        {"profile": spec, "features": list(features), "environment": environment},
-    )
+    receipt = {"profile": spec, "features": list(features), "environment": environment}
+    if model_bytes is not None:
+        receipt["model_bytes"] = model_bytes
+    write_settings(descriptor, receipt)
+    report("starting_runtime")
     return environment
 
 

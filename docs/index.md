@@ -100,6 +100,7 @@ Check `result.isError` and `result.structuredContent.ok`. Read `data` on success
 - `POST /v1/chat/completions` — Stateless text inference
 - `GET /v1/control/models` — Inspect installed model profiles, lifecycle state, and in-flight request counts
 - `PUT /v1/control/models/{model_id}` — Enable an installed model or stop admission and drain it
+- `GET /v1/control/runtime` — Inspect utilization of this runtime, models, endpoints and lifecycle
 
 ## Contracts
 

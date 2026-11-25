@@ -1,6 +1,7 @@
 """Generate the checked-in GitHub Pages documentation from the service contracts."""
 
 import argparse
+import hashlib
 import json
 from html import escape
 from pathlib import Path
@@ -303,6 +304,12 @@ MCP_REQUEST"""
     related_rows = "\n".join(
         f'<li><a href="{url}">{escape(name)}</a></li>' for name, url in related.items()
     )
+    asset_rev = hashlib.sha256(
+        b"".join(
+            (PAGES / name).read_bytes()
+            for name in ("style.css", "console.js", "runtime.js")
+        )
+    ).hexdigest()[:12]
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -328,42 +335,101 @@ MCP_REQUEST"""
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="{escape(config["description"], quote=True)}">
-  <title>{title} Documentation</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="console.js" defer></script>
+  <title>{title} Console</title>
+  <link rel="stylesheet" href="style.css?v={asset_rev}">
+  <script src="console.js?v={asset_rev}" defer></script>
+  <script src="runtime.js?v={asset_rev}" defer></script>
   <link rel="describedby" href="llms.txt">
   <link rel="alternate" type="text/markdown" href="index.md">
   <link rel="service-desc" type="application/json" href="contracts/openapi.json">
 </head>
 <body>
-  <header>
-    <div class="wrap">
-      <h1>{title}</h1>
-      <p>{escape(config["description"])}</p>
-      <nav aria-label="Documentation">
-        <a href="#integrate">Integration</a>
-        <a href="#console">Test the runtime</a>
-        <a href="#mcp">MCP</a>
-        <a href="#api">API</a>
-        <a href="#contracts">Contracts</a>
-        <a href="llms.txt">llms.txt</a>
+  <a class="skip-link" href="#runtime">Skip to runtime overview</a>
+  <header class="topbar">
+    <div class="wrap topbar-content">
+      <a class="wordmark" href="#runtime">{title}</a>
+      <nav aria-label="Console navigation">
+        <a href="#runtime">Runtime</a>
+        <a href="#model-control">Models</a>
+        <a href="#console">Requests</a>
+        <a href="#integrate">Reference</a>
       </nav>
     </div>
   </header>
   <main class="wrap">
-    <section id="integrate">
-      <h2>Integrate</h2>
-      <p>{escape(AUTH)}</p>
-      <ol>{list_html(config["start"])}</ol>
+    <div class="page-heading">
+      <h1>{title}</h1>
+      <p>{escape(config["description"])}</p>
+    </div>
+    <section id="runtime" class="panel overview" aria-labelledby="runtime-title">
+      <header class="panel-header">
+        <div><h2 id="runtime-title">Runtime overview</h2><p id="runtime-message">Connect to a runtime to see live activity.</p></div>
+        <label class="compact-field">Chart <select id="runtime-series"><option value="load">Models and requests</option><option value="host">Host CPU and memory</option></select></label>
+      </header>
+      <div class="overview-grid">
+        <figure class="trend">
+          <div class="chart-frame"><canvas id="runtime-chart" aria-label="Runtime history"></canvas></div>
+          <figcaption id="runtime-legend" class="legend"></figcaption>
+        </figure>
+        <div class="overview-details">
+          <dl class="runtime-kpis">
+            <div><dt>Loaded models</dt><dd id="runtime-loaded">—</dd></div>
+            <div><dt>Models in use</dt><dd id="runtime-busy">—</dd></div>
+            <div><dt>Active requests</dt><dd id="runtime-active">—</dd></div>
+            <div><dt>Recent clients</dt><dd id="runtime-clients">—</dd></div>
+          </dl>
+          <p id="runtime-client-detail" class="micro">Authenticated clients and open WebSockets.</p>
+        </div>
+      </div>
+      <div id="runtime-host" class="host-strip" aria-label="Host specifications"></div>
+      <details class="nested activity" id="activity">
+        <summary><strong>Activity and utilization</strong><span>Endpoints, models, and lifecycle</span></summary>
+        <div class="disclosure-body">
+          <div class="filters">
+            <label>Window<select id="runtime-window"><option value="60">Last minute</option><option value="300" selected>Last 5 minutes</option><option value="900">Last 15 minutes</option></select></label>
+            <label>Endpoint<select id="runtime-endpoint"><option value="">All endpoints</option></select></label>
+            <label>Model<select id="runtime-model-filter"><option value="">All models</option></select></label>
+            <label>Search<input id="runtime-search" type="search" autocomplete="off" placeholder="Filter visible rows"></label>
+          </div>
+          <div class="segment" role="group" aria-label="Activity view">
+            <button type="button" data-view="endpoints" aria-pressed="true">Endpoints</button>
+            <button type="button" data-view="models" aria-pressed="false">Models</button>
+            <button type="button" data-view="lifecycle" aria-pressed="false">Lifecycle</button>
+          </div>
+          <label id="runtime-state-filter" class="compact-field" hidden>State <select id="runtime-state"><option value="">All states</option><option value="starting">Starting</option><option value="running">Running</option><option value="loading">Loading</option><option value="ready">Ready</option><option value="draining">Draining</option><option value="disabled">Disabled</option><option value="failed">Failed</option><option value="stopping">Stopping</option></select></label>
+          <div id="runtime-table" class="table-scroll" role="region" aria-label="Filtered runtime activity" tabindex="0"></div>
+        </div>
+      </details>
     </section>
-    <section id="console">
-      <h2>Test the runtime</h2>
-      <p>Open the link from <code>tunnelctl</code> or enter a runtime URL and bearer key. The console holds the key in memory for this tab.</p>
-      <p id="api-connection-status" role="status"></p>
+    <details class="panel connection" id="runtime-connection" open>
+      <summary><strong>Connection</strong><span id="api-connection-status" role="status">Disconnected</span></summary>
+      <div class="disclosure-body connection-fields">
+        <label>Runtime URL <input id="api-url" type="url" inputmode="url" placeholder="https://service.example" required></label>
+        <label>Session key or bearer token <input id="api-token" type="password" autocomplete="off"></label>
+        <div class="actions">
+          <button class="primary" id="api-connect" type="button">Connect</button>
+          <button id="api-share" type="button" hidden>Copy link</button>
+        </div>
+      </div>
+    </details>
+    <div class="dashboard-columns">
+      <section class="panel" id="model-control" aria-labelledby="models-heading">
+        <header class="panel-header">
+          <div><h2 id="models-heading">Model library</h2><p>Enable a profile to install its weights and start its runtime.</p></div>
+          <button id="models-refresh" type="button">Refresh</button>
+        </header>
+        <div class="panel-body models-body">
+          <p id="models-status" class="small-status" role="status">Connect to a runtime to view its models.</p>
+          <div id="models-list" class="model-stack"></div>
+        </div>
+      </section>
+      <section class="panel request" id="console" aria-labelledby="request-title">
+        <header class="panel-header">
+          <div><h2 id="request-title">Request console</h2><p>Test an HTTP endpoint or MCP tool.</p></div>
+        </header>
+        <div class="panel-body">
       <form id="api-console">
         <div class="form-grid">
-          <label>Runtime URL <input id="api-url" type="url" inputmode="url" placeholder="https://service.example" required></label>
-          <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
           <label>Operation <select id="api-operation"></select></label>
           <label>Ready model <select id="api-model"><option value="">Use request body</option></select></label>
           <label id="api-accept-label">Response format <select id="api-accept"></select></label>
@@ -374,23 +440,24 @@ MCP_REQUEST"""
         </div>
         <label id="api-body-label" hidden>JSON request or multipart fields <textarea id="api-body" rows="7" spellcheck="false"></textarea></label>
         <div class="actions">
-          <button id="api-connect" type="button">Connect</button>
-          <button id="api-share" type="button" hidden>Copy connection link</button>
-          <button id="api-run" type="submit">Send request</button>
+          <button class="primary" id="api-run" type="submit">Send request</button>
           <button id="api-stop" type="button" disabled>Cancel</button>
         </div>
       </form>
-      <p id="api-status" role="status">Loading API operations…</p>
+      <div class="nested response">
+      <div class="response-header"><h3>Response</h3><span id="api-status" role="status">Loading operations…</span></div>
       <audio id="api-audio" controls hidden></audio>
       <a id="api-download" download="voxrn-audio.wav" hidden>Download WAV</a>
-      <pre id="api-output" aria-label="Response" tabindex="0"></pre>
-      <details id="model-control">
-        <summary>Manage model library</summary>
-        <p>The first enable checks capacity and downloads the selected model. Disabling drains active work.</p>
-        <button id="models-refresh" type="button">Load model state</button>
-        <p id="models-status" role="status"></p>
-        <ul id="models-list"></ul>
-      </details>
+      <pre id="api-output" aria-label="Response body" tabindex="0"></pre>
+      </div>
+        </div>
+      </section>
+    </div>
+    <div class="reference">
+    <section id="integrate">
+      <h2>Integrate</h2>
+      <p>{escape(AUTH)}</p>
+      <ol>{list_html(config["start"])}</ol>
     </section>
     <section id="mcp">
       <h2>MCP</h2>
@@ -424,6 +491,7 @@ MCP_REQUEST"""
       <p>These projects use the following default Pages locations after publication.</p>
       <ul>{related_rows}</ul>
     </section>
+    </div>
   </main>
 </body>
 </html>
