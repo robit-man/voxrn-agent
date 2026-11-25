@@ -1,8 +1,8 @@
 {
   "openapi": "3.2.1",
-  "$self": "https://github.com/robit-man/voryn-agent/raw/refs/heads/main/contracts/openapi.json",
+  "$self": "https://github.com/robit-man/voxrn-agent/raw/refs/heads/main/contracts/openapi.json",
   "info": {
-    "title": "Voryn Agent",
+    "title": "VoxRN Agent",
     "version": "1.0.0",
     "description": "Specification baseline. Consult SPEC.md for protocol behavior and publication status."
   },

@@ -1,4 +1,4 @@
-# Voryn Agent
+# VoxRN Agent
 
 Stateless text inference and durable, governed execution of versioned agent workflows.
 
