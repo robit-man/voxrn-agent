@@ -5,6 +5,7 @@ COPY requirements*.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p /var/lib/voxrn && chown 10001:10001 /var/lib/voxrn
 COPY contracts ./contracts
+COPY docs ./docs
 COPY service ./service
 USER 10001:10001
 EXPOSE 8000

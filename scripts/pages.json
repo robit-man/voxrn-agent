@@ -1,0 +1,18 @@
+{
+  "service": "agent",
+  "description": "Run stateless text inference and execute versioned workflows with durable state and action receipts.",
+  "start": [
+    "Read `GET /v1/capabilities` or call `agent_capabilities` to select an installed model. Use `POST /v1/chat/completions` for stateless inference, or `agent_infer` for a buffered MCP response.",
+    "For workflow execution, list authorized revisions, create a run, and submit a finalized participant turn with the expected run revision. Use `Idempotency-Key` for HTTP commands or `idempotency_key` for their MCP equivalents.",
+    "Read the committed run state by ID and use `GET /v1/runs/{run_id}/events` for SSE replay. Resume after a durable event using `Last-Event-ID`. Treat turn admission, provisional output, and action receipts as distinct events."
+  ],
+  "tool_http": {
+    "agent_cancel_run": "POST /v1/runs/{run_id}/cancel",
+    "agent_capabilities": "GET /v1/capabilities",
+    "agent_create_run": "POST /v1/runs",
+    "agent_get_run": "GET /v1/runs/{run_id}",
+    "agent_infer": "POST /v1/chat/completions",
+    "agent_list_workflows": "GET /v1/workflows",
+    "agent_submit_turn": "POST /v1/runs/{run_id}/turns"
+  }
+}

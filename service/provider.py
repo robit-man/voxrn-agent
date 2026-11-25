@@ -11,6 +11,10 @@ class Ollama:
     def __init__(self):
         self.url = os.environ["VOXRN_AGENT_OLLAMA_URL"].rstrip("/")
         self.tag = os.environ["VOXRN_AGENT_MODEL_TAG"]
+        thinking = os.environ.get("VOXRN_AGENT_THINK")
+        if thinking not in (None, "true", "false"):
+            raise ValueError("VOXRN_AGENT_THINK must be true or false.")
+        self.thinking = None if thinking is None else thinking == "true"
         self.context_tokens = int(os.environ.get("VOXRN_AGENT_CONTEXT_TOKENS", "8192"))
         self.identity = {
             "model": "qwen-local",
@@ -69,6 +73,8 @@ class Ollama:
             "stream": stream,
             "options": {"num_ctx": self.context_tokens, "num_predict": tokens},
         }
+        if self.thinking is not None:
+            payload["think"] = self.thinking
         if schema is not None:
             payload["format"] = schema
         return payload

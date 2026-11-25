@@ -11,6 +11,7 @@ Install `requirements.txt`. Provision a compatible Ollama server and model indep
 | `VOXRN_AGENT_MODEL_DIGEST` | Exact model digest from the provider catalog. |
 | `VOXRN_AGENT_ENGINE_REVISION` | Exact engine version from `/api/version`. |
 | `VOXRN_AGENT_CONTEXT_TOKENS` | Configured provider context window. Defaults to 8192. |
+| `VOXRN_AGENT_THINK` | Optional explicit Ollama thinking mode, `true` or `false`. The installer uses `false` for its small Qwen profile. |
 | `VOXRN_AGENT_PROVIDER_TOKEN` | Optional bearer credential for the trusted provider. |
 | `VOXRN_AGENT_WORKFLOW_DIR` | Directory containing an admitted workflow bundle. Omit for stateless inference only. |
 
@@ -52,7 +53,7 @@ Check `/livez`, `/readyz`, then `/v1/capabilities` with the bearer credential. T
 
 For an OAuth deployment, leave `VOXRN_DEV_TOKEN` unset, terminate TLS at the serving boundary, and configure the host and resource settings. Configure the identity service to return `active`, `iss`, `aud`, `sub` and space-separated `scope`; an optional `tenant_id` defaults to the subject. MCP publishes protected-resource discovery at `/.well-known/oauth-protected-resource/mcp`.
 
-The included Dockerfile packages a single-process CPU profile. Supply model assets, OAuth configuration, and a writable data volume at runtime. This phase verified the application contract in-process, with synthetic fixtures and stub inference adapters. Image builds, real model quality, and integration into Voryn require separate verification.
+The included Dockerfile packages a single-process CPU profile. Supply model assets, OAuth configuration, and a writable data volume at runtime. See [deployment verification](DEPLOY.md#deployment-verification) for the independent native and container checks. Model promotion and integration into Voryn require separate qualification.
 
 ```sh
 python -m unittest discover -s tests -v

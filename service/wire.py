@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from jsonschema import Draft202012Validator
 from mcp import types
 from mcp.server.lowlevel import Server
@@ -164,6 +166,11 @@ class Authorization:
             os.environ.get("VOXRN_OAUTH_CLIENT_SECRET"),
         )
         self.origins = set(os.environ.get("VOXRN_ALLOWED_ORIGINS", "").split())
+        local_port = os.environ.get("VOXRN_LOCAL_PORT", "8000")
+        self.origins.update(
+            f"http://{host}:{local_port}"
+            for host in ("127.0.0.1", "localhost", "[::1]")
+        )
         self.hosts = os.environ.get(
             "VOXRN_ALLOWED_HOSTS", "localhost:* 127.0.0.1:* [::1]:*"
         ).split()
@@ -447,6 +454,27 @@ def build_service(kind, ready, handlers, *, start=None, shutdown=None):
     async def openapi():
         return OPENAPI
 
+    app.mount(
+        "/docs",
+        StaticFiles(directory=CONTRACTS.parent / "docs", html=True),
+        name="docs",
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=sorted(auth.origins),
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "Last-Event-ID",
+            "MCP-Protocol-Version",
+            "Mcp-Method",
+            "Mcp-Name",
+        ],
+        expose_headers=["X-Request-ID", "Location", "Retry-After", "WWW-Authenticate"],
+    )
     return app, mcp
 
 

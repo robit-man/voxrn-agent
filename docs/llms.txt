@@ -1,0 +1,22 @@
+# VoxRN Agent
+
+> Run stateless text inference and execute versioned workflows with durable state and action receipts.
+
+Obtain the runtime base URL and an access token from its operator. The default Pages URLs serve documentation. The HTTPS runtime serves the API and MCP endpoint, and credentials belong at that runtime.
+
+MCP uses Streamable HTTP `POST /mcp` at the runtime, revision `2026-07-28`.
+Use `server/discover`, `tools/list`, then `tools/call` with the runtime bearer token.
+
+## Integration
+
+- [Service and MCP guide](index.md): Service setup, scope requirements, handshake-free discovery, and request examples.
+- [Service discovery metadata](discovery.json): Machine-readable paths, tool mappings, and links.
+- [OpenAPI](contracts/openapi.json): HTTP operations, schemas, scope requirements, and error responses.
+- [MCP tool catalog](contracts/mcp-tools.json): Tool names, descriptions, input and output schemas, and required scopes.
+- [Examples](contracts/examples.json): Illustrative HTTP and MCP payloads, with streaming examples where applicable.
+- [Workflow bundle schema](contracts/workflow-bundle.schema.json): The agent service's workflow admission envelope.
+
+## Optional
+
+- [VoxRN ASR](https://robit-man.github.io/voxrn-asr/)
+- [VoxRN TTS](https://robit-man.github.io/voxrn-tts/)

@@ -1,0 +1,2497 @@
+{
+  "openapi": "3.2.1",
+  "info": {
+    "title": "VoxRN Agent",
+    "version": "1.0.0",
+    "description": "VoxRN HTTP service contract. See the [integration guide](../index.md) for runtime discovery, authentication, and MCP usage."
+  },
+  "servers": [
+    {
+      "url": "https://service.example"
+    }
+  ],
+  "security": [
+    {
+      "oauth": [
+        "agent:read"
+      ]
+    }
+  ],
+  "paths": {
+    "/livez": {
+      "get": {
+        "operationId": "liveness",
+        "summary": "Process liveness",
+        "responses": {
+          "200": {
+            "description": "Process is live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readiness",
+        "summary": "Configured service readiness",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "capabilities",
+        "summary": "Discover model revisions, features and limits",
+        "responses": {
+          "200": {
+            "description": "Effective catalog and limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/v1/workflows": {
+      "get": {
+        "operationId": "listWorkflows",
+        "summary": "Discover admitted workflow revisions",
+        "responses": {
+          "200": {
+            "description": "Authorized workflow revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflows"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/v1/runs": {
+      "post": {
+        "operationId": "createRun",
+        "summary": "Initialize a durable workflow run",
+        "responses": {
+          "201": {
+            "description": "Initialized run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Path of the initialized run.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "504": {
+            "$ref": "#/components/responses/Problem504"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          }
+        },
+        "security": [
+          {
+            "oauth": [
+              "agent:run"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "operationId": "getRun",
+        "summary": "Read committed run state",
+        "responses": {
+          "200": {
+            "description": "Committed run snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem410"
+          }
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/turns": {
+      "post": {
+        "operationId": "submitTurn",
+        "summary": "Append one finalized participant turn",
+        "responses": {
+          "202": {
+            "description": "Durable turn admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnAccepted"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "504": {
+            "$ref": "#/components/responses/Problem504"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem410"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          }
+        },
+        "security": [
+          {
+            "oauth": [
+              "agent:run"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "cancelRun",
+        "summary": "Accept cancellation of a nonterminal run",
+        "responses": {
+          "202": {
+            "description": "Cancellation accepted; inspect the run for the final outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "504": {
+            "$ref": "#/components/responses/Problem504"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem410"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          }
+        },
+        "security": [
+          {
+            "oauth": [
+              "agent:run"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/events": {
+      "get": {
+        "operationId": "streamRun",
+        "summary": "Replay and follow durable run events",
+        "responses": {
+          "200": {
+            "description": "Ordered run event stream.",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "$ref": "#/components/schemas/RunEvent"
+                      }
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*$"
+                    }
+                  },
+                  "required": [
+                    "event",
+                    "data",
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "406": {
+            "$ref": "#/components/responses/Problem406"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem410"
+          }
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "chatCompletion",
+        "summary": "Stateless text inference",
+        "responses": {
+          "200": {
+            "description": "Single choice or Chat Completions SSE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              },
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "contentMediaType": "application/json",
+                          "contentSchema": {
+                            "$ref": "#/components/schemas/ChatChunk"
+                          },
+                          "not": {
+                            "const": "[DONE]"
+                          }
+                        },
+                        {
+                          "type": "string",
+                          "const": "[DONE]"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "X-Model-Revision": {
+                "description": "Exact immutable model revision.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "X-Engine": {
+                "description": "Effective adapter engine ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "X-Engine-Revision": {
+                "description": "Exact immutable engine revision.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          },
+          "504": {
+            "$ref": "#/components/responses/Problem504"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          }
+        },
+        "security": [
+          {
+            "oauth": [
+              "agent:infer"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://auth.example/token",
+            "scopes": {
+              "agent:read": "Read the catalog and authorized runs",
+              "agent:run": "Start, advance or cancel authorized runs",
+              "agent:infer": "Run stateless inference"
+            }
+          },
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.example/authorize",
+            "tokenUrl": "https://auth.example/token",
+            "scopes": {
+              "agent:read": "Read the catalog and authorized runs",
+              "agent:run": "Start, advance or cancel authorized runs",
+              "agent:infer": "Run stateless inference"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "request_id",
+          "retryable"
+        ],
+        "additionalProperties": false
+      },
+      "Artifact": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "media_type",
+          "bytes",
+          "sha256",
+          "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "Identity": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "model_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "engine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "engine_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "model",
+          "model_revision",
+          "engine",
+          "engine_revision"
+        ],
+        "additionalProperties": false
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "agent"
+          },
+          "contract_version": {
+            "type": "string",
+            "const": "1.0.0"
+          },
+          "service_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max_request_bytes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_active_turns_per_run": {
+                "const": 1
+              },
+              "idempotency_ttl_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "run_idle_ttl_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_output_tokens": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "max_request_bytes",
+              "max_active_turns_per_run",
+              "idempotency_ttl_seconds",
+              "run_idle_ttl_seconds",
+              "max_output_tokens"
+            ],
+            "additionalProperties": false
+          },
+          "mcp_protocol_version": {
+            "type": "string",
+            "const": "2026-07-28"
+          }
+        },
+        "required": [
+          "service",
+          "contract_version",
+          "service_revision",
+          "models",
+          "limits",
+          "mcp_protocol_version"
+        ],
+        "additionalProperties": false
+      },
+      "Model": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "features": {
+            "type": "object",
+            "properties": {
+              "chat": {
+                "type": "boolean"
+              },
+              "chat_stream": {
+                "type": "boolean"
+              },
+              "workflow": {
+                "type": "boolean"
+              },
+              "structured_outputs": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "chat",
+              "chat_stream",
+              "workflow",
+              "structured_outputs"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "identity",
+          "features"
+        ],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "live",
+              "ready"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "Workflow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "executable_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "binding_set_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "source_sha256",
+          "executable_sha256",
+          "binding_set_sha256",
+          "identity"
+        ],
+        "additionalProperties": false
+      },
+      "Workflows": {
+        "type": "object",
+        "properties": {
+          "workflows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Workflow"
+            }
+          }
+        },
+        "required": [
+          "workflows"
+        ],
+        "additionalProperties": false
+      },
+      "RunRequest": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "workflow_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "workflow_id",
+          "workflow_revision"
+        ],
+        "additionalProperties": false
+      },
+      "TurnRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "input": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "expected_revision",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "CancelRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "Run": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/Workflow"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "running",
+              "cancelling",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_event_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "state": {
+            "type": "object",
+            "description": "Validated by the pinned workflow's declared JSON Schema."
+          }
+        },
+        "required": [
+          "id",
+          "workflow",
+          "status",
+          "revision",
+          "last_event_seq",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "TurnAccepted": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_event_seq": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "run_id",
+          "turn_id",
+          "revision",
+          "last_event_seq"
+        ],
+        "additionalProperties": false
+      },
+      "RunStarted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run.started"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "TurnStarted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn.started"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "ReplyDelta": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "reply.delta"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "delta": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "delta"
+        ],
+        "additionalProperties": false
+      },
+      "StateCommitted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "state.committed"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "state": {
+            "type": "object",
+            "description": "Validated by the pinned workflow's declared JSON Schema."
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "revision",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "ActionReceipt": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "action.receipt"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "receipt_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "succeeded",
+              "failed",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "receipt_id",
+          "operation_id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "TurnCompleted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn.completed"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "reply": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "reply",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "RunCompleted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run.completed"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "RunCancelled": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run.cancelled"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "TurnFailed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn.failed"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turn_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/Problem"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "turn_id",
+          "problem",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "RunFailed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run.failed"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "problem": {
+            "$ref": "#/components/schemas/Problem"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "problem",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "RunCancelling": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run.cancelling"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "seq",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "RunEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RunStarted"
+          },
+          {
+            "$ref": "#/components/schemas/TurnStarted"
+          },
+          {
+            "$ref": "#/components/schemas/ReplyDelta"
+          },
+          {
+            "$ref": "#/components/schemas/StateCommitted"
+          },
+          {
+            "$ref": "#/components/schemas/ActionReceipt"
+          },
+          {
+            "$ref": "#/components/schemas/TurnCompleted"
+          },
+          {
+            "$ref": "#/components/schemas/RunCompleted"
+          },
+          {
+            "$ref": "#/components/schemas/RunCancelled"
+          },
+          {
+            "$ref": "#/components/schemas/TurnFailed"
+          },
+          {
+            "$ref": "#/components/schemas/RunFailed"
+          },
+          {
+            "$ref": "#/components/schemas/RunCancelling"
+          }
+        ]
+      },
+      "ChatRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "object": {
+            "type": "string",
+            "const": "chat.completion"
+          },
+          "created": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "const": 0
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "const": "assistant"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "content"
+                  ],
+                  "additionalProperties": false
+                },
+                "finish_reason": {
+                  "type": "string",
+                  "enum": [
+                    "stop",
+                    "length"
+                  ]
+                }
+              },
+              "required": [
+                "index",
+                "message",
+                "finish_reason"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "prompt_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completion_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "prompt_tokens",
+              "completion_tokens",
+              "total_tokens"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "ChatChunk": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "object": {
+            "type": "string",
+            "const": "chat.completion.chunk"
+          },
+          "created": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "const": 0
+                },
+                "delta": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "const": "assistant"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                },
+                "finish_reason": {
+                  "enum": [
+                    "stop",
+                    "length",
+                    null
+                  ]
+                }
+              },
+              "required": [
+                "index",
+                "delta",
+                "finish_reason"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "RunRequestTool": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "workflow_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "workflow_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "workflow_id",
+          "workflow_revision"
+        ],
+        "additionalProperties": false
+      },
+      "TurnRequestTool": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "input": {
+            "type": "string",
+            "minLength": 1
+          },
+          "run_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "expected_revision",
+          "input",
+          "run_id"
+        ],
+        "additionalProperties": false
+      },
+      "CancelRequestTool": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "expected_revision",
+          "run_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "Problem400": {
+        "description": "Malformed request or protocol error",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem401": {
+        "description": "Authentication required or invalid",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "WWW-Authenticate": {
+            "description": "Bearer challenge, when applicable.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Problem403": {
+        "description": "Insufficient scope or object access",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "WWW-Authenticate": {
+            "description": "Bearer challenge, when applicable.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Problem404": {
+        "description": "Object not found or inaccessible",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem406": {
+        "description": "Response representation is unsupported",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem409": {
+        "description": "Revision, idempotency, or state conflict",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem410": {
+        "description": "Expired artifact or cursor",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem413": {
+        "description": "Body or decoded media limit exceeded",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem415": {
+        "description": "Unsupported or mismatched request media type",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem422": {
+        "description": "Unsupported model option or semantic admission failure",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem429": {
+        "description": "Capacity or rate limited",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "Retry-After": {
+            "description": "Seconds before retry is eligible.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "Problem500": {
+        "description": "Service failure",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem502": {
+        "description": "Upstream transport or invalid result",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Problem503": {
+        "description": "Unavailable or not ready",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "Retry-After": {
+            "description": "Seconds before retry is eligible.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "Problem504": {
+        "description": "Deadline exceeded",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Service-generated request correlation ID.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          },
+          "Cache-Control": {
+            "description": "Prevents retention by shared or private HTTP caches.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      }
+    }
+  }
+}

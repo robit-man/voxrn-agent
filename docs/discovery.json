@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "name": "VoxRN Agent",
+  "description": "Run stateless text inference and execute versioned workflows with durable state and action receipts.",
+  "documentation": {
+    "html": "index.html",
+    "markdown": "index.md",
+    "agentIndex": "llms.txt"
+  },
+  "runtime": {
+    "baseUrl": null,
+    "baseUrlSource": "Obtain the HTTPS service URL from its operator.",
+    "capabilitiesPath": "/v1/capabilities",
+    "authentication": "Bearer",
+    "oauthResourceMetadataPath": "/.well-known/oauth-protected-resource/mcp"
+  },
+  "mcp": {
+    "path": "/mcp",
+    "transport": "streamable-http",
+    "protocolVersion": "2026-07-28",
+    "methods": [
+      "server/discover",
+      "tools/list",
+      "tools/call"
+    ],
+    "catalog": "contracts/mcp-tools.json",
+    "tools": [
+      {
+        "name": "agent_cancel_run",
+        "description": "Request workflow cancellation and later read the final state.",
+        "requiredScopes": [
+          "agent:run"
+        ],
+        "httpOperation": "POST /v1/runs/{run_id}/cancel"
+      },
+      {
+        "name": "agent_capabilities",
+        "description": "List available inference models and limits.",
+        "requiredScopes": [
+          "agent:read"
+        ],
+        "httpOperation": "GET /v1/capabilities"
+      },
+      {
+        "name": "agent_create_run",
+        "description": "Initialize an authorized workflow revision.",
+        "requiredScopes": [
+          "agent:run"
+        ],
+        "httpOperation": "POST /v1/runs"
+      },
+      {
+        "name": "agent_get_run",
+        "description": "Read committed workflow run state.",
+        "requiredScopes": [
+          "agent:read"
+        ],
+        "httpOperation": "GET /v1/runs/{run_id}"
+      },
+      {
+        "name": "agent_infer",
+        "description": "Run buffered stateless text inference.",
+        "requiredScopes": [
+          "agent:infer"
+        ],
+        "httpOperation": "POST /v1/chat/completions"
+      },
+      {
+        "name": "agent_list_workflows",
+        "description": "List authorized workflow revisions.",
+        "requiredScopes": [
+          "agent:read"
+        ],
+        "httpOperation": "GET /v1/workflows"
+      },
+      {
+        "name": "agent_submit_turn",
+        "description": "Admit a finalized participant turn after authorization.",
+        "requiredScopes": [
+          "agent:run"
+        ],
+        "httpOperation": "POST /v1/runs/{run_id}/turns"
+      }
+    ]
+  },
+  "contracts": {
+    "OpenAPI": "contracts/openapi.json",
+    "MCP tool catalog": "contracts/mcp-tools.json",
+    "Examples": "contracts/examples.json",
+    "Workflow bundle schema": "contracts/workflow-bundle.schema.json"
+  },
+  "relatedDocumentation": {
+    "VoxRN ASR": "https://robit-man.github.io/voxrn-asr/",
+    "VoxRN TTS": "https://robit-man.github.io/voxrn-tts/"
+  }
+}

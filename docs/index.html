@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Run stateless text inference and execute versioned workflows with durable state and action receipts.">
+  <title>VoxRN Agent Documentation</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="console.js" defer></script>
+  <link rel="describedby" href="llms.txt">
+  <link rel="alternate" type="text/markdown" href="index.md">
+  <link rel="service-desc" type="application/json" href="contracts/openapi.json">
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>VoxRN Agent</h1>
+      <p>Run stateless text inference and execute versioned workflows with durable state and action receipts.</p>
+      <nav aria-label="Documentation">
+        <a href="#integrate">Integration</a>
+        <a href="#console">Test the runtime</a>
+        <a href="#mcp">MCP</a>
+        <a href="#api">API</a>
+        <a href="#contracts">Contracts</a>
+        <a href="llms.txt">llms.txt</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <section id="integrate">
+      <h2>Integrate</h2>
+      <p>Obtain the runtime base URL and an access token from its operator. The default Pages URLs serve documentation. The HTTPS runtime serves the API and MCP endpoint, and credentials belong at that runtime.</p>
+      <ol><li>Read <code>GET /v1/capabilities</code> or call <code>agent_capabilities</code> to select an installed model. Use <code>POST /v1/chat/completions</code> for stateless inference, or <code>agent_infer</code> for a buffered MCP response.</li>
+<li>For workflow execution, list authorized revisions, create a run, and submit a finalized participant turn with the expected run revision. Use <code>Idempotency-Key</code> for HTTP commands or <code>idempotency_key</code> for their MCP equivalents.</li>
+<li>Read the committed run state by ID and use <code>GET /v1/runs/{run_id}/events</code> for SSE replay. Resume after a durable event using <code>Last-Event-ID</code>. Treat turn admission, provisional output, and action receipts as distinct events.</li></ol>
+    </section>
+    <section id="console">
+      <h2>Test the runtime</h2>
+      <p>Enter the deployed service URL and its bearer token. The page keeps credentials in this form for the current session.</p>
+      <form id="api-console">
+        <div class="form-grid">
+          <label>Runtime URL <input id="api-url" type="url" inputmode="url" placeholder="https://service.example" required></label>
+          <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
+          <label>Operation <select id="api-operation"></select></label>
+          <label id="api-accept-label">Response format <select id="api-accept"></select></label>
+          <label id="api-id-label" hidden>Run or media ID <input id="api-id" autocomplete="off"></label>
+          <label id="api-key-label" hidden>Idempotency key <input id="api-key" autocomplete="off"></label>
+          <label id="api-cursor-label" hidden>Last event ID <input id="api-cursor" inputmode="numeric"></label>
+          <label id="api-file-label" hidden>Audio file <input id="api-file" type="file" accept="audio/*"></label>
+        </div>
+        <label id="api-body-label" hidden>JSON request or multipart fields <textarea id="api-body" rows="7" spellcheck="false"></textarea></label>
+        <div class="actions">
+          <button id="api-run" type="submit">Send request</button>
+          <button id="api-stop" type="button" disabled>Cancel</button>
+        </div>
+      </form>
+      <p id="api-status" role="status">Loading API operations…</p>
+      <audio id="api-audio" controls hidden></audio>
+      <a id="api-download" download="voxrn-audio.wav" hidden>Download WAV</a>
+      <pre id="api-output" aria-label="Response" tabindex="0"></pre>
+    </section>
+    <section id="mcp">
+      <h2>MCP</h2>
+      <p>For OAuth deployments, follow the <code>WWW-Authenticate</code> resource metadata link or fetch <code>/.well-known/oauth-protected-resource/mcp</code> from the runtime. Request the tool&#x27;s scopes and target the deployed MCP resource as audience. The deployment may also issue a local development bearer token.</p>
+      <ol><li>Use Streamable HTTP <code>POST /mcp</code> with <code>MCP-Protocol-Version: 2026-07-28</code> and request metadata. Send <code>server/discover</code> to read server capabilities.</li>
+<li>Send <code>tools/list</code> with <code>Mcp-Method: tools/list</code>. Preserve the protocol metadata and change the JSON-RPC method to match.</li>
+<li>For a call, send <code>Mcp-Method: tools/call</code> and <code>Mcp-Name: &lt;tool&gt;</code> with matching <code>params.name</code> and the input under <code>params.arguments</code>.</li></ol>
+      <details><summary>Discovery request</summary><pre><code>curl &quot;$VOXRN_URL/mcp&quot; \
+  -H &quot;Authorization: Bearer $VOXRN_TOKEN&quot; \
+  -H &#x27;Accept: application/json, text/event-stream&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -H &#x27;MCP-Protocol-Version: 2026-07-28&#x27; \
+  -H &#x27;Mcp-Method: server/discover&#x27; \
+  --data-binary @- &lt;&lt;&#x27;MCP_REQUEST&#x27;
+{
+  &quot;jsonrpc&quot;: &quot;2.0&quot;,
+  &quot;id&quot;: 1,
+  &quot;method&quot;: &quot;server/discover&quot;,
+  &quot;params&quot;: {
+    &quot;_meta&quot;: {
+      &quot;io.modelcontextprotocol/protocolVersion&quot;: &quot;2026-07-28&quot;,
+      &quot;io.modelcontextprotocol/clientInfo&quot;: {
+        &quot;name&quot;: &quot;voxrn-docs-example&quot;,
+        &quot;version&quot;: &quot;1.0.0&quot;
+      },
+      &quot;io.modelcontextprotocol/clientCapabilities&quot;: {}
+    }
+  }
+}
+MCP_REQUEST</code></pre></details>
+      <details><summary>Tool call example</summary><p>To call <code>agent_infer</code>, keep the other headers from discovery and set <code>Mcp-Method: tools/call</code> and <code>Mcp-Name: agent_infer</code>. Send this body after meeting the prerequisites in the integration steps.</p><pre><code>{
+  &quot;jsonrpc&quot;: &quot;2.0&quot;,
+  &quot;id&quot;: 2,
+  &quot;method&quot;: &quot;tools/call&quot;,
+  &quot;params&quot;: {
+    &quot;name&quot;: &quot;agent_infer&quot;,
+    &quot;arguments&quot;: {
+      &quot;model&quot;: &quot;qwen-local&quot;,
+      &quot;messages&quot;: [
+        {
+          &quot;role&quot;: &quot;user&quot;,
+          &quot;content&quot;: &quot;Summarize this in one sentence.&quot;
+        }
+      ]
+    },
+    &quot;_meta&quot;: {
+      &quot;io.modelcontextprotocol/protocolVersion&quot;: &quot;2026-07-28&quot;,
+      &quot;io.modelcontextprotocol/clientInfo&quot;: {
+        &quot;name&quot;: &quot;voxrn-docs-example&quot;,
+        &quot;version&quot;: &quot;1.0.0&quot;
+      },
+      &quot;io.modelcontextprotocol/clientCapabilities&quot;: {}
+    }
+  }
+}
+</code></pre></details>
+      <p>Check <code>result.isError</code> and <code>result.structuredContent.ok</code>. Read <code>data</code> on success or <code>problem</code> on a tool failure. HTTP authentication, JSON-RPC and protocol failures can arrive outside the tool result.</p>
+      <div class="table-scroll" role="region" aria-label="MCP tool catalog" tabindex="0">
+        <table>
+          <thead><tr><th scope="col">Tool</th><th scope="col">Required scopes</th><th scope="col">HTTP operation</th><th scope="col">Purpose</th></tr></thead>
+          <tbody><tr><td><code>agent_cancel_run</code></td><td><code>agent:run</code></td><td><code>POST /v1/runs/{run_id}/cancel</code></td><td>Request workflow cancellation and later read the final state.</td></tr>
+<tr><td><code>agent_capabilities</code></td><td><code>agent:read</code></td><td><code>GET /v1/capabilities</code></td><td>List available inference models and limits.</td></tr>
+<tr><td><code>agent_create_run</code></td><td><code>agent:run</code></td><td><code>POST /v1/runs</code></td><td>Initialize an authorized workflow revision.</td></tr>
+<tr><td><code>agent_get_run</code></td><td><code>agent:read</code></td><td><code>GET /v1/runs/{run_id}</code></td><td>Read committed workflow run state.</td></tr>
+<tr><td><code>agent_infer</code></td><td><code>agent:infer</code></td><td><code>POST /v1/chat/completions</code></td><td>Run buffered stateless text inference.</td></tr>
+<tr><td><code>agent_list_workflows</code></td><td><code>agent:read</code></td><td><code>GET /v1/workflows</code></td><td>List authorized workflow revisions.</td></tr>
+<tr><td><code>agent_submit_turn</code></td><td><code>agent:run</code></td><td><code>POST /v1/runs/{run_id}/turns</code></td><td>Admit a finalized participant turn after authorization.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="api">
+      <h2>HTTP and streaming</h2>
+      <dl><dt><code>GET /livez</code></dt><dd>Process liveness</dd>
+<dt><code>GET /readyz</code></dt><dd>Configured service readiness</dd>
+<dt><code>GET /v1/capabilities</code></dt><dd>Discover model revisions, features and limits</dd>
+<dt><code>GET /v1/workflows</code></dt><dd>Discover admitted workflow revisions</dd>
+<dt><code>POST /v1/runs</code></dt><dd>Initialize a durable workflow run</dd>
+<dt><code>GET /v1/runs/{run_id}</code></dt><dd>Read committed run state</dd>
+<dt><code>POST /v1/runs/{run_id}/turns</code></dt><dd>Append one finalized participant turn</dd>
+<dt><code>POST /v1/runs/{run_id}/cancel</code></dt><dd>Accept cancellation of a nonterminal run</dd>
+<dt><code>GET /v1/runs/{run_id}/events</code></dt><dd>Replay and follow durable run events</dd>
+<dt><code>POST /v1/chat/completions</code></dt><dd>Stateless text inference</dd></dl>
+    </section>
+    <section id="contracts">
+      <h2>Contracts and agent files</h2>
+      <ul class="resources">
+        <li><a href="contracts/openapi.json">OpenAPI</a> <span>HTTP operations, schemas, scope requirements, and error responses.</span></li>
+<li><a href="contracts/mcp-tools.json">MCP tool catalog</a> <span>Tool names, descriptions, input and output schemas, and required scopes.</span></li>
+<li><a href="contracts/examples.json">Examples</a> <span>Illustrative HTTP and MCP payloads, with streaming examples where applicable.</span></li>
+<li><a href="contracts/workflow-bundle.schema.json">Workflow bundle schema</a> <span>The agent service&#x27;s workflow admission envelope.</span></li>
+        <li><a href="llms.txt">llms.txt</a> <span>Agent entry point.</span></li>
+        <li><a href="index.md">Markdown guide</a> <span>Text version of this page.</span></li>
+        <li><a href="discovery.json">Service discovery metadata</a> <span>Machine-readable link map.</span></li>
+      </ul>
+    </section>
+    <section>
+      <h2>Related services</h2>
+      <p>These projects use the following default Pages locations after publication.</p>
+      <ul><li><a href="https://robit-man.github.io/voxrn-asr/">VoxRN ASR</a></li>
+<li><a href="https://robit-man.github.io/voxrn-tts/">VoxRN TTS</a></li></ul>
+    </section>
+  </main>
+</body>
+</html>

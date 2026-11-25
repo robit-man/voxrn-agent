@@ -1,0 +1,61 @@
+name: voxrn-agent
+services:
+  api:
+    build: .
+    image: ${VOXRN_CONTAINER_IMAGE:-voxrn-agent:local}
+    init: true
+    user: "${VOXRN_UID:-1000}:${VOXRN_GID:-1000}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${VOXRN_PORT:-8313}:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      VOXRN_LOCAL_PORT: ${VOXRN_PORT:-8313}
+      VOXRN_DEV_TOKEN: "${VOXRN_DEV_TOKEN:-}"
+      VOXRN_OAUTH_ISSUER: "${VOXRN_OAUTH_ISSUER:-}"
+      VOXRN_OAUTH_INTROSPECTION_URL: "${VOXRN_OAUTH_INTROSPECTION_URL:-}"
+      VOXRN_OAUTH_CLIENT_ID: "${VOXRN_OAUTH_CLIENT_ID:-}"
+      VOXRN_OAUTH_CLIENT_SECRET: "${VOXRN_OAUTH_CLIENT_SECRET:-}"
+      VOXRN_MCP_RESOURCE: "${VOXRN_MCP_RESOURCE:-}"
+      VOXRN_ALLOWED_HOSTS: "${VOXRN_ALLOWED_HOSTS:-localhost:* 127.0.0.1:* [::1]:*}"
+      VOXRN_ALLOWED_ORIGINS: "${VOXRN_ALLOWED_ORIGINS:-}"
+      VOXRN_AGENT_OLLAMA_URL: http://ollama:11434
+      VOXRN_AGENT_MODEL_TAG: "qwen3:0.6b"
+      VOXRN_AGENT_THINK: "false"
+      VOXRN_AGENT_MODEL_DIGEST: 7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435
+      VOXRN_AGENT_ENGINE_REVISION: "${VOXRN_AGENT_ENGINE_REVISION:-0.40.18}"
+      VOXRN_AGENT_WORKFLOW_DIR: /workflow
+    volumes:
+      - "${VOXRN_API_DATA_DIR:-${VOXRN_INSTALL_DIR:?Set the provisioned install directory}/data}:/var/lib/voxrn"
+      - "${VOXRN_INSTALL_DIR}/workflow:/workflow:ro"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:${VOXRN_AGENT_ENGINE_REVISION:-0.40.18}
+    init: true
+    user: "${VOXRN_UID:-1000}:${VOXRN_GID:-1000}"
+    restart: unless-stopped
+    environment:
+      HOME: /tmp
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: /models
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_LLM_LIBRARY: cpu
+      CUDA_VISIBLE_DEVICES: "-1"
+      HIP_VISIBLE_DEVICES: "-1"
+      ROCR_VISIBLE_DEVICES: "-1"
+      OLLAMA_VULKAN: "0"
+    volumes:
+      - "${VOXRN_INSTALL_DIR}/models/ollama:/models"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
