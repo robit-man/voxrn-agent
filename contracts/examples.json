@@ -1,0 +1,247 @@
+{
+  "http": [
+    {
+      "schema": "#/components/schemas/RunRequest",
+      "value": {
+        "workflow_id": "intake",
+        "workflow_revision": "1.0.0"
+      }
+    },
+    {
+      "schema": "#/components/schemas/Run",
+      "value": {
+        "id": "run_123",
+        "status": "ready",
+        "revision": 0,
+        "last_event_seq": 1,
+        "state": {},
+        "workflow": {
+          "id": "intake",
+          "revision": "1.0.0",
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "binding_set_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "identity": {
+            "model": "qwen-local",
+            "model_revision": "weights-example",
+            "engine": "ollama",
+            "engine_revision": "engine-example"
+          }
+        }
+      }
+    },
+    {
+      "schema": "#/components/schemas/TurnRequest",
+      "value": {
+        "expected_revision": 0,
+        "input": "Please record the request for Friday."
+      }
+    },
+    {
+      "schema": "#/components/schemas/TurnAccepted",
+      "value": {
+        "run_id": "run_123",
+        "turn_id": "turn_123",
+        "revision": 1,
+        "last_event_seq": 2
+      }
+    },
+    {
+      "schema": "#/components/schemas/ChatRequest",
+      "value": {
+        "model": "qwen-local",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Summarize this in one sentence."
+          }
+        ]
+      }
+    },
+    {
+      "schema": "#/components/schemas/ChatResponse",
+      "value": {
+        "id": "chat_123",
+        "object": "chat.completion",
+        "created": 1795521600,
+        "model": "qwen-local",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Please provide the text to summarize."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ],
+  "mcp": [
+    {
+      "tool": "agent_infer",
+      "arguments": {
+        "model": "qwen-local",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Summarize this in one sentence."
+          }
+        ]
+      },
+      "structuredContent": {
+        "ok": true,
+        "data": {
+          "id": "chat_123",
+          "object": "chat.completion",
+          "created": 1795521600,
+          "model": "qwen-local",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Please provide the text to summarize."
+              },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "agent_submit_turn",
+      "arguments": {
+        "run_id": "run_123",
+        "idempotency_key": "example-turn-1",
+        "expected_revision": 0,
+        "input": "Please record the request for Friday."
+      },
+      "structuredContent": {
+        "ok": true,
+        "data": {
+          "run_id": "run_123",
+          "turn_id": "turn_123",
+          "revision": 1,
+          "last_event_seq": 2
+        }
+      }
+    }
+  ],
+  "sse": [
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "run.started",
+        "seq": 1,
+        "revision": 0
+      }
+    },
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "turn.started",
+        "seq": 2,
+        "turn_id": "turn_123",
+        "revision": 1
+      }
+    },
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "action.receipt",
+        "seq": 3,
+        "turn_id": "turn_123",
+        "receipt_id": "receipt_123",
+        "operation_id": "record_request",
+        "status": "recorded"
+      }
+    },
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "state.committed",
+        "seq": 4,
+        "turn_id": "turn_123",
+        "revision": 2,
+        "state": {
+          "day": "Friday"
+        }
+      }
+    },
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "turn.completed",
+        "seq": 5,
+        "turn_id": "turn_123",
+        "revision": 3,
+        "reply": "I recorded the request for Friday."
+      }
+    },
+    {
+      "schema": "#/components/schemas/RunEvent",
+      "value": {
+        "type": "run.completed",
+        "seq": 6,
+        "revision": 4
+      }
+    }
+  ],
+  "workflow_bundle": {
+    "id": "intake",
+    "revision": "1.0.0",
+    "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "binding_set_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "identity": {
+      "model": "qwen-local",
+      "model_revision": "weights-example",
+      "engine": "ollama",
+      "engine_revision": "engine-example"
+    },
+    "bundle_version": "1.0",
+    "abi": "workflow-v1",
+    "entrypoint": "intake",
+    "state_schema": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "initial_state": {},
+    "operations": [
+      {
+        "id": "record_request",
+        "binding_id": "native_request_log",
+        "effect": "record",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "day"
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "record_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_id"
+          ]
+        }
+      }
+    ]
+  }
+}
