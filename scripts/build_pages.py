@@ -307,6 +307,25 @@ MCP_REQUEST"""
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <script>
+    (() => {{
+      function hydrateLink() {{
+        const url = new URL(location.href);
+        const fragment = new URLSearchParams(url.hash.slice(1));
+        const fields = ["endpoint", "key", "transport"];
+        const source = fragment.has("key") || fragment.has("endpoint") ? fragment : url.searchParams;
+        if (!source.has("key") && !source.has("endpoint")) return;
+        window.voxrnConnection = Object.fromEntries(fields.map(key => [key, source.get(key)]));
+        fields.forEach(key => url.searchParams.delete(key));
+        if (source === fragment) url.hash = "";
+        history.replaceState(null, "", url);
+        window.dispatchEvent(new Event("voxrn:connection"));
+      }}
+      addEventListener("hashchange", hydrateLink);
+      hydrateLink();
+    }})();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="{escape(config["description"], quote=True)}">
   <title>{title} Documentation</title>
@@ -339,12 +358,14 @@ MCP_REQUEST"""
     </section>
     <section id="console">
       <h2>Test the runtime</h2>
-      <p>Enter the deployed service URL and its bearer token. The page keeps credentials in this form for the current session.</p>
+      <p>Open the link from <code>tunnelctl</code> or enter a runtime URL and bearer key. The console holds the key in memory for this tab.</p>
+      <p id="api-connection-status" role="status"></p>
       <form id="api-console">
         <div class="form-grid">
           <label>Runtime URL <input id="api-url" type="url" inputmode="url" placeholder="https://service.example" required></label>
           <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
           <label>Operation <select id="api-operation"></select></label>
+          <label>Ready model <select id="api-model"><option value="">Use request body</option></select></label>
           <label id="api-accept-label">Response format <select id="api-accept"></select></label>
           <label id="api-id-label" hidden>Run or media ID <input id="api-id" autocomplete="off"></label>
           <label id="api-key-label" hidden>Idempotency key <input id="api-key" autocomplete="off"></label>
@@ -353,6 +374,8 @@ MCP_REQUEST"""
         </div>
         <label id="api-body-label" hidden>JSON request or multipart fields <textarea id="api-body" rows="7" spellcheck="false"></textarea></label>
         <div class="actions">
+          <button id="api-connect" type="button">Connect</button>
+          <button id="api-share" type="button" hidden>Copy connection link</button>
           <button id="api-run" type="submit">Send request</button>
           <button id="api-stop" type="button" disabled>Cancel</button>
         </div>
@@ -362,8 +385,8 @@ MCP_REQUEST"""
       <a id="api-download" download="voxrn-audio.wav" hidden>Download WAV</a>
       <pre id="api-output" aria-label="Response" tabindex="0"></pre>
       <details id="model-control">
-        <summary>Manage installed models</summary>
-        <p>Use the service management scope. Disabling stops admission and drains active requests.</p>
+        <summary>Manage model library</summary>
+        <p>The first enable checks capacity and downloads the selected model. Disabling drains active work.</p>
         <button id="models-refresh" type="button">Load model state</button>
         <p id="models-status" role="status"></p>
         <ul id="models-list"></ul>

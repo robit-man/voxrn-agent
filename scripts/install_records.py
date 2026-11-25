@@ -12,7 +12,7 @@ from pathlib import Path
 from host import NAME, ROOT, load_settings, write_settings
 
 MARKER = ".voxrn-install.json"
-ROLES = {"api", "ollama", "tray"}
+ROLES = {"api", "ollama", "tray", "tunnel"}
 LEGACY_ARTIFACTS = {
     "settings.json",
     "compose.env",

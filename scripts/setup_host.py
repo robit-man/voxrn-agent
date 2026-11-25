@@ -28,32 +28,22 @@ from host import (
     local_env,
     ollama_env,
     systemctl,
+    unit_quote,
     wait_endpoint,
     write_settings,
 )
 
 from install_records import check_prefix, claim_prefix, install_lock, load_marker
-from provision_models import isolated_env, parse_selection, profiles, provision_profiles
+from model_install import install as install_model, model_lock, require_capacity
+from provision_models import isolated_env, parse_selection, profiles
+from tunnel_host import (
+    DEFAULT_PAGES,
+    TUNNEL_UNIT,
+    install_command,
+    pages_url,
+    provision_cloudflared,
+)
 
-REQUIREMENTS = {
-    "asr": "requirements-whisper.txt",
-    "tts": "requirements-supertonic.txt",
-    "agent": "requirements.txt",
-}
-ASSETS = {
-    "asr": (
-        "Systran/faster-whisper-base",
-        "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
-        ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"],
-        "VOXRN_ASR_WHISPER_DIR",
-    ),
-    "tts": (
-        "Supertone/supertonic",
-        "b6856d033f622c63ea29441795be266a1133e227",
-        ["onnx/*", "voice_styles/*", "LICENSE*"],
-        "VOXRN_TTS_SUPERTONIC_DIR",
-    ),
-}
 OLLAMA_VERSION = "0.40.18"
 OLLAMA_HASHES = {
     "amd64": "b82649006cb5b54ed1237fa2d1a26a7f939a4fd03150033759acbff7ff315adf",
@@ -71,8 +61,8 @@ def prepare_venv(prefix):
     binary = prefix / "venv" / "bin" / "python"
     if not binary.exists():
         run(sys.executable, "-m", "venv", str(prefix / "venv"))
-    packages = ["-r", str(ROOT / REQUIREMENTS[KIND])]
-    if KIND in ASSETS:
+    packages = ["-r", str(ROOT / "requirements.txt")]
+    if KIND != "agent":
         packages.append("huggingface-hub==0.36.0")
     run(
         str(binary),
@@ -84,24 +74,6 @@ def prepare_venv(prefix):
         env=isolated_env(prefix / "cache"),
     )
     return binary
-
-
-def download_model(python, prefix):
-    repo_id, revision, patterns, variable = ASSETS[KIND]
-    model = run(
-        str(python),
-        "-c",
-        "from huggingface_hub import snapshot_download; import sys; print(snapshot_download("
-        "repo_id=sys.argv[1], revision=sys.argv[2], cache_dir=sys.argv[3], allow_patterns=sys.argv[4:]))",
-        repo_id,
-        revision,
-        str(prefix / "models" / "hf"),
-        *patterns,
-        stdout=subprocess.PIPE,
-        text=True,
-        env=isolated_env(prefix / "cache"),
-    ).stdout.strip()
-    return {variable: model}
 
 
 def hash_file(path):
@@ -214,10 +186,8 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
     config.setdefault("ollama_port", 8314)
     base_url = f"http://127.0.0.1:{config['ollama_port']}"
     environment = ollama_env(path, config)
-    selected = {"qwen-local": {"tag": QWEN_TAG, "digest": QWEN_DIGEST, "think": False}}
-    for key in selection:
-        if "ollama" in specs[key]:
-            selected[key] = specs[key]["ollama"]
+    selected = {key: specs[key]["ollama"] for key in selection}
+    catalog = {key: spec["ollama"] for key, spec in specs.items()}
     entries_by_model = []
     process = None
     if model_cache is not None:
@@ -234,7 +204,7 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
                     model_cache, destination, tag=tag, expected_digest=digest
                 )
     try:
-        if available_port(config["ollama_port"]):
+        if selected and available_port(config["ollama_port"]):
             (prefix / "models" / "ollama").mkdir(
                 mode=0o700, parents=True, exist_ok=True
             )
@@ -245,16 +215,18 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
                     stdout=log,
                     stderr=subprocess.STDOUT,
                 )
-        elif (
+        elif not available_port(config["ollama_port"]) and (
             not use_managed
             or systemctl("is-active", PROVIDER_UNIT, check=False).returncode
         ):
             raise RuntimeError(
                 f"Ollama port {config['ollama_port']} is occupied by another process. Choose --ollama-port."
             )
-        version = wait_endpoint(f"{base_url}/api/version", seconds=30, process=process)[
-            "version"
-        ]
+        version = OLLAMA_VERSION
+        if selected:
+            version = wait_endpoint(
+                f"{base_url}/api/version", seconds=30, process=process
+            )["version"]
         for model_id, profile in selected.items():
             tag, digest = profile["tag"], profile["digest"]
             if expected := profile.get("engine_revision"):
@@ -268,6 +240,7 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
             if not any(
                 item["name"] == tag and item["digest"] == digest for item in entries
             ):
+                require_capacity(path.parent, specs[model_id], activation=False)
                 pull_pinned_model(config["ollama_binary"], environment, tag=tag)
                 entries = wait_endpoint(
                     f"{base_url}/api/tags", seconds=15, process=process
@@ -278,15 +251,18 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
                 raise RuntimeError(
                     f"Ollama returned a digest other than the pin for {model_id}."
                 )
+            with model_lock(path):
+                install_model(path, model_id, config, specs[model_id], activate=False)
+        for model_id, profile in catalog.items():
             entry = {
                 "model": model_id,
-                "tag": tag,
-                "digest": digest,
+                "tag": profile["tag"],
+                "digest": profile["digest"],
                 "engine": "ollama",
                 "engine_revision": version,
                 "url": base_url,
                 "managed": True,
-                "enabled": model_id == "qwen-local",
+                "enabled": False,
             }
             for field in ("context_tokens", "think", "structured_outputs"):
                 if field in profile:
@@ -313,7 +289,9 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
         prefix / "workflow" / "agent-models-compose.json",
         {
             "models": [
-                {**entry, "url": "http://ollama:11434"} for entry in entries_by_model
+                {**entry, "url": "http://ollama:11434", "enabled": True}
+                for entry in entries_by_model
+                if entry["model"] in selected
             ],
         },
     )
@@ -331,18 +309,6 @@ def prepare_agent(path, config, python, use_managed, model_cache, selection, spe
         env=local_env(path, config),
     )
     config["environment"]["VOXRN_AGENT_WORKFLOW_DIR"] = str(bundle)
-
-
-def unit_quote(value, *, desktop=False):
-    text = str(value)
-    if "\n" in text or "\r" in text:
-        raise RuntimeError("Installation paths cannot include line breaks.")
-    text = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
-    if desktop:
-        text = text.replace("$", "\\$").replace("`", "\\`")
-    else:
-        text = text.replace("$", "$$")
-    return f'"{text}"'
 
 
 def install_files(path, with_tray):
@@ -372,6 +338,19 @@ def install_files(path, with_tray):
         f"[Unit]\nDescription={NAME} inference service\n{dependencies}"
         f"[Service]\nExecStart={launch}\n{common}{output('api')}[Install]\nWantedBy=default.target\n"
     )
+    tunnel_launch = " ".join(
+        unit_quote(item)
+        for item in (sys.executable, "-B", ROOT / "scripts" / "tunnel_run.py", path)
+    )
+    tunnel = (
+        f"[Unit]\nDescription={NAME} Cloudflare connector\n"
+        f"Requires={USER_UNIT}\nAfter={USER_UNIT}\nPartOf={USER_UNIT}\n"
+        f"[Service]\nExecStart={tunnel_launch}\n"
+        "Restart=on-failure\nRestartSec=2s\nKillMode=mixed\n"
+        "UMask=0077\nNoNewPrivileges=yes\n"
+    )
+    install_command(path)
+    (units / TUNNEL_UNIT).write_text(tunnel)
     (units / USER_UNIT).write_text(service)
     if with_tray:
         desktop = CONFIG / "autostart"
@@ -436,6 +415,17 @@ def main():
         help="Private install, model and data directory.",
     )
     parser.add_argument("--port", type=port_number, help="Local HTTP port.")
+    parser.add_argument(
+        "--with-tunnel",
+        action="store_true",
+        help="Provision cloudflared and the terminal menu dependencies.",
+    )
+    parser.add_argument(
+        "--tunnel-port", type=port_number, help="Private Cloudflare origin port."
+    )
+    parser.add_argument(
+        "--pages-url", type=pages_url, help="Static console URL to use in tunnel links."
+    )
     if KIND == "agent":
         parser.add_argument(
             "--ollama-port", type=port_number, help="Dedicated local Ollama port."
@@ -525,34 +515,47 @@ def main():
             or systemctl("is-active", USER_UNIT, check=False).returncode
         ):
             raise RuntimeError(f"Port {port} is occupied. Choose a free --port.")
+        tunnel_port = (
+            args.tunnel_port
+            or config.get("tunnel_port")
+            or (port + 1000 if port <= 64535 else port - 1000)
+        )
+        if tunnel_port == port:
+            raise RuntimeError("Choose different --port and --tunnel-port values.")
+        if not available_port(tunnel_port) and (
+            not install
+            or tunnel_port != config.get("tunnel_port")
+            or systemctl("is-active", USER_UNIT, check=False).returncode
+        ):
+            raise RuntimeError(
+                f"Port {tunnel_port} is occupied. Choose a free --tunnel-port."
+            )
         config["port"] = port
+        config["tunnel_port"] = tunnel_port
+        config["pages_url"] = args.pages_url or config.get("pages_url", DEFAULT_PAGES)
         maybe_ollama = getattr(args, "ollama_port", None)
         if maybe_ollama:
             config["ollama_port"] = maybe_ollama
-        if KIND == "agent" and config.get("ollama_port", 8314) == port:
+        if KIND == "agent" and config.get("ollama_port", 8314) in {port, tunnel_port}:
             raise RuntimeError("The HTTP and Ollama ports must differ.")
         print(
             f"{NAME}: provisioning {platform.machine()} CPU inference at {path.parent}.",
             flush=True,
         )
         python = prepare_venv(path.parent)
-        if KIND in ASSETS:
-            config["environment"] = download_model(python, path.parent)
-        else:
-            prepare_agent(
-                path,
-                config,
-                python,
-                existing and install,
-                args.ollama_model_cache,
-                selection,
-                specs,
-            )
-        config["profiles"] = selection
-        config["environment"].update(
-            provision_profiles(path.parent, python, selection, specs)
+        prepare_agent(
+            path,
+            config,
+            python,
+            existing and install,
+            args.ollama_model_cache,
+            selection,
+            specs,
         )
+        config["profiles"] = selection
         write_settings(path, config)
+        if args.with_tunnel:
+            provision_cloudflared(path)
         compose_env = export_compose(path, config)
         if install:
             desktop_file = install_files(path, not args.no_tray)

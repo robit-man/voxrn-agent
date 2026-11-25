@@ -83,9 +83,8 @@ def load_providers():
         not isinstance(config, dict)
         or set(config) != {"models"}
         or not isinstance(config["models"], list)
-        or not config["models"]
     ):
-        raise ValueError("The provider registry must contain a nonempty models list.")
+        raise ValueError("The provider registry must contain a models list.")
     providers = {}
     upstreams = {}
     for record in config["models"]:

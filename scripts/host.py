@@ -8,6 +8,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 KIND = json.loads((ROOT / "scripts" / "pages.json").read_text())["service"]
@@ -22,6 +23,18 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
 SETTINGS = BASE / "settings.json"
 USER_UNIT = f"{NAME}.service"
 PROVIDER_UNIT = "voxrn-agent-ollama.service"
+
+
+def unit_quote(value, *, desktop=False):
+    text = str(value)
+    if "\n" in text or "\r" in text:
+        raise RuntimeError("Installation paths cannot include line breaks.")
+    text = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    if desktop:
+        text = text.replace("$", "\\$").replace("`", "\\`")
+    else:
+        text = text.replace("$", "$$")
+    return f'"{text}"'
 
 
 def write_settings(path, value):
@@ -79,9 +92,19 @@ def systemctl(*arguments, check=True):
 
 
 def local_env(path, config):
+    pages = urlsplit(config.get("pages_url", ""))
+    tunnel = {}
+    if config.get("tunnel_port"):
+        tunnel = {
+            "VOXRN_TUNNEL_PORT": str(config["tunnel_port"]),
+            "VOXRN_TUNNEL_STATE": str(path.parent / "run" / "tunnel-session.json"),
+            "VOXRN_TUNNEL_PAGES_ORIGIN": f"{pages.scheme}://{pages.netloc}",
+        }
     return {
         **os.environ,
         **config["environment"],
+        **tunnel,
+        "VOXRN_MANAGED_SETTINGS": str(path),
         "VOXRN_DATA_DIR": str(path.parent / "data"),
         "XDG_CACHE_HOME": str(path.parent / "cache"),
         "HF_HOME": str(path.parent / "cache" / "huggingface"),

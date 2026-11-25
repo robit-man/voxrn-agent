@@ -26,6 +26,7 @@ esac
 tray=true
 for argument in "$@"; do
     if [[ $argument == --no-tray || $argument == --prepare-only ]]; then tray=false; fi
+    if [[ $argument == --with-tunnel ]]; then packages+=(whiptail); fi
 done
 if "$tray"; then
     packages+=(python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 xdg-utils)

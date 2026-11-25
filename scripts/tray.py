@@ -4,6 +4,7 @@ import argparse
 import os
 import secrets
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -11,6 +12,7 @@ import gi
 
 from host import (
     NAME,
+    ROOT,
     USER_UNIT,
     available_port,
     load_settings,
@@ -20,6 +22,7 @@ from host import (
 
 from install_records import own_process
 from models_cli import control
+from tunnel_host import TUNNEL_UNIT
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
@@ -30,25 +33,16 @@ class Tray:
     def __init__(self, path):
         self.path = path
         self.indicator = Indicator.Indicator.new(
-            NAME, "network-server", Indicator.IndicatorCategory.APPLICATION_STATUS
+            NAME, "system-run", Indicator.IndicatorCategory.APPLICATION_STATUS
         )
         self.indicator.set_title(NAME)
         self.indicator.set_status(Indicator.IndicatorStatus.ACTIVE)
         self.menu = Gtk.Menu()
         self.summary = self.item("Checking service", None)
-        self.item("Open API console", self.open_console)
-        self.item("Copy bearer token", self.copy_token)
-        self.menu.append(Gtk.SeparatorMenuItem())
-        for label, action in (
-            ("Start service", ("start",)),
-            ("Stop service", ("stop",)),
-            ("Restart service", ("restart",)),
-            ("Enable service at login", ("enable",)),
-            ("Disable service at login", ("disable", "--now")),
-        ):
-            self.item(label, lambda *_, args=action: self.change(*args))
-        self.item("Models", self.models)
-        self.item("Settings", self.settings)
+        self.panel = None
+        self.remote_busy = False
+        entry = self.item("Open controls", self.open_controls)
+        self.indicator.set_secondary_activate_target(entry)
         self.item("Quit tray", lambda *_: Gtk.main_quit())
         self.menu.show_all()
         self.indicator.set_menu(self.menu)
@@ -64,25 +58,13 @@ class Tray:
             entry.connect("activate", handler)
         return entry
 
-    def message(self, text):
-        dialog = Gtk.MessageDialog(
-            parent=None,
-            flags=0,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=text,
-        )
-        dialog.set_title(NAME)
-        dialog.run()
-        dialog.destroy()
-
     def change(self, *arguments):
         result = systemctl(*arguments, USER_UNIT, check=False)
         self.refresh()
         if result.returncode:
-            self.message(
-                result.stderr.strip() or "systemd could not complete that action."
-            )
+            self.feedback.set_text(result.stderr.strip() or "Service action failed.")
+        else:
+            self.feedback.set_text("Service action completed.")
 
     def refresh(self):
         running = (
@@ -91,7 +73,11 @@ class Tray:
         enabled = (
             systemctl("is-enabled", USER_UNIT, check=False).stdout.strip() or "unknown"
         )
-        self.summary.set_label(f"{NAME} · {running} · {enabled}")
+        label = f"{NAME} · {running} · {enabled}"
+        self.summary.set_label(label)
+        if self.panel is not None and self.panel.get_visible():
+            self.panel_status.set_text(label)
+            self.refresh_models()
         return True
 
     def open_console(self, *_args):
@@ -102,75 +88,200 @@ class Tray:
         config = load_settings(self.path)
         clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
         clipboard.set_text(config["token"], -1)
+        self.feedback.set_text("Local API token copied to the clipboard.")
 
-    def models(self, *_args):
+    def open_controls(self, *_args):
+        if self.panel is None:
+            self.build_panel()
+        self.panel.show_all()
+        self.refresh()
+        display = self.panel.get_display()
+        device = display.get_default_seat().get_pointer()
+        _screen, x, y = device.get_position()
+        bounds = display.get_monitor_at_point(x, y).get_workarea()
+        width, height = self.panel.get_size()
+        self.panel.move(
+            max(bounds.x, min(x - width // 2, bounds.x + bounds.width - width)),
+            max(bounds.y, min(y + 8, bounds.y + bounds.height - height)),
+        )
+        self.panel.present()
+
+    def build_panel(self):
+        window = Gtk.Window(title=f"{NAME} controls", decorated=False)
+        window.set_default_size(530, -1)
+        window.set_keep_above(True)
+        window.set_skip_taskbar_hint(True)
+        window.set_type_hint(Gdk.WindowTypeHint.UTILITY)
+        window.connect("delete-event", lambda *_: (window.hide(), True)[1])
+        window.connect("focus-out-event", self.schedule_dismiss)
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=14)
+        window.add(panel)
+        self.panel_status = Gtk.Label(xalign=0)
+        panel.pack_start(self.panel_status, False, False, 0)
+        self.feedback = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.widgets = {}
+
+        def section(label, widget):
+            expander = Gtk.Expander(label=label)
+            expander.add(widget)
+            panel.pack_start(expander, False, False, 0)
+            return expander
+
+        service = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
+        for label, command in (
+            ("Start", ("start",)),
+            ("Stop", ("stop",)),
+            ("Restart", ("restart",)),
+            ("Enable at login", ("enable",)),
+            ("Disable at login", ("disable", "--now")),
+        ):
+            self.button(service, label, lambda *_, cmd=command: self.change(*cmd))
+        self.button(service, "Open API console", self.open_console)
+        self.button(service, "Copy local token", self.copy_token)
+        section("Service", service).set_expanded(True)
+        self.model_grid = Gtk.Grid(column_spacing=12, row_spacing=6, margin=6)
+        self.model_section = section("Models", self.model_grid)
+        self.model_section.connect("notify::expanded", lambda *_: self.refresh_models())
+        remote = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
+        for label, command in (
+            ("Open Quick Tunnel", "open"),
+            ("Copy Pages link", "link"),
+            ("Copy endpoint", "endpoint"),
+            ("Copy direct console link", "direct"),
+            ("Copy session key", "key"),
+            ("Rotate key and copy link", "rotate"),
+            ("Close tunnel", "close"),
+            ("Tunnel status", "status"),
+        ):
+            self.button(remote, label, lambda *_, cmd=command: self.tunnel(cmd))
+        section("Remote session", remote)
+        section("Settings", self.settings_panel())
+        panel.pack_start(self.feedback, False, False, 0)
+        self.button(panel, "Close", lambda *_: window.hide())
+        self.panel = window
+
+    def schedule_dismiss(self, window, _event):
+        def dismiss():
+            if window.get_visible() and not window.has_toplevel_focus():
+                window.hide()
+            return False
+
+        GLib.timeout_add(150, dismiss)
+        return False
+
+    @staticmethod
+    def button(container, label, callback):
+        button = Gtk.Button(label=label)
+        button.connect("clicked", callback)
+        container.add(button)
+
+    def refresh_models(self):
+        if self.panel is None or not self.model_section.get_expanded():
+            return
         try:
             rows = control(self.path)["models"]
         except (OSError, RuntimeError, ValueError) as exc:
-            self.message(f"Could not read model state. {exc}")
+            self.feedback.set_text(str(exc))
             return
-        dialog = Gtk.Dialog(title=f"{NAME} models", flags=0)
-        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
-        grid = Gtk.Grid(column_spacing=12, row_spacing=6, margin=12)
-        dialog.get_content_area().pack_start(grid, True, True, 0)
-        widgets = {}
-        footer = Gtk.Label(xalign=0)
+        for row in rows:
+            model = row["identity"]["model"]
+            if model not in self.widgets:
+                index = len(self.widgets)
+                status = Gtk.Label(xalign=0)
+                button = Gtk.Button()
+                button.connect("clicked", self.toggle_model, model)
+                self.widgets[model] = button, status
+                self.model_grid.attach(status, 0, index, 1, 1)
+                self.model_grid.attach(button, 1, index, 1, 1)
+                status.show()
+                button.show()
+            self.show_model(row)
 
-        def show_state(row):
-            model_id = row["identity"]["model"]
-            button, status = widgets[model_id]
-            label = f"{model_id} · {row['state']} · {row['active_requests']} active"
-            if row.get("error_code"):
-                label += f" · {row['error_code']}"
-            status.set_text(label)
-            button.set_label("Disable" if row["enabled"] else "Enable")
-            button.set_sensitive(row["state"] not in {"loading", "draining"})
+    def show_model(self, row):
+        model = row["identity"]["model"]
+        button, status = self.widgets[model]
+        label = f"{model} · {row['state']} · {row['active_requests']} active"
+        if installation := row.get("installation"):
+            if not installation["installed"]:
+                label += f" · download on enable ({installation['disk_mib']} MiB disk)"
+            if installation["hardware"] == "cuda":
+                label += " · requires CUDA"
+        if row.get("error_code"):
+            label += f" · {row.get('error_detail') or row['error_code']}"
+        status.set_text(label)
+        button.set_label("Disable" if row["enabled"] else "Enable")
+        button.set_sensitive(row["state"] != "draining")
 
-        def toggle(button, model_id):
-            try:
-                show_state(control(self.path, model_id, button.get_label() == "Enable"))
-                footer.set_text("")
-            except (OSError, RuntimeError, ValueError) as exc:
-                footer.set_text(str(exc))
-
-        def refresh_models():
-            try:
-                for row in control(self.path)["models"]:
-                    if row["identity"]["model"] in widgets:
-                        show_state(row)
-                footer.set_text("")
-            except (OSError, RuntimeError, ValueError) as exc:
-                footer.set_text(str(exc))
-            return True
-
-        for index, row in enumerate(rows):
-            model_id = row["identity"]["model"]
-            status = Gtk.Label(xalign=0)
-            button = Gtk.Button()
-            widgets[model_id] = button, status
-            button.connect("clicked", toggle, model_id)
-            show_state(row)
-            grid.attach(status, 0, index, 1, 1)
-            grid.attach(button, 1, index, 1, 1)
-        if not rows:
-            footer.set_text("No installed model profiles.")
-        grid.attach(footer, 0, len(rows), 2, 1)
-        dialog.show_all()
-        refresh_timer = GLib.timeout_add_seconds(2, refresh_models)
+    def toggle_model(self, button, model):
         try:
-            dialog.run()
-        finally:
-            GLib.source_remove(refresh_timer)
-            dialog.destroy()
+            self.show_model(control(self.path, model, button.get_label() == "Enable"))
+            self.feedback.set_text("")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.feedback.set_text(str(exc))
 
-    def settings(self, *_args):
+    def tunnel(self, operation):
+        if self.remote_busy:
+            return
+        if (
+            operation == "open"
+            and not systemctl("is-active", TUNNEL_UNIT, check=False).returncode
+        ):
+            self.feedback.set_text(
+                "A tunnel is active. Copy its link or close it before opening another."
+            )
+            return
+        command = (
+            sys.executable,
+            "-B",
+            str(ROOT / "scripts" / "tunnel_cli.py"),
+            "--prefix",
+            str(self.path.parent),
+            operation,
+        )
+        if operation == "direct":
+            command = (*command[:-1], "link", "--direct")
+        try:
+            child = Gio.Subprocess.new(
+                command,
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            )
+        except GLib.Error as exc:
+            self.feedback.set_text(str(exc))
+            return
+        self.remote_busy = True
+        self.feedback.set_text("Contacting the tunnel service…")
+
+        def finished(process, result, _unused):
+            self.remote_busy = False
+            try:
+                _, output, error = process.communicate_utf8_finish(result)
+                if not process.get_successful():
+                    self.feedback.set_text(error.strip())
+                elif operation in {
+                    "open",
+                    "link",
+                    "key",
+                    "rotate",
+                    "endpoint",
+                    "direct",
+                }:
+                    Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(
+                        output.strip(), -1
+                    )
+                    value = {"key": "Session key", "endpoint": "Endpoint"}.get(
+                        operation, "Connection link"
+                    )
+                    self.feedback.set_text(f"{value} copied to the clipboard.")
+                else:
+                    self.feedback.set_text(output.strip())
+            except GLib.Error as exc:
+                self.feedback.set_text(str(exc))
+
+        child.communicate_utf8_async(None, None, finished, None)
+
+    def settings_panel(self):
         saved = load_settings(self.path)
-        dialog = Gtk.Dialog(title=f"{NAME} settings", flags=0)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Save", Gtk.ResponseType.OK)
-        box = dialog.get_content_area()
-        grid = Gtk.Grid(column_spacing=10, row_spacing=8, margin=14)
-        box.pack_start(grid, True, True, 0)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=8, margin=6)
         port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
         port.set_value(saved["port"])
         origins = Gtk.Entry(text=" ".join(saved["origins"]))
@@ -181,34 +292,34 @@ class Tray:
         grid.attach(Gtk.Label(label="Allowed HTTPS origins", xalign=0), 0, 1, 1, 1)
         grid.attach(origins, 1, 1, 1, 1)
         grid.attach(rotate, 0, 2, 2, 1)
-        dialog.show_all()
-        response = dialog.run()
-        if response != Gtk.ResponseType.OK:
-            dialog.destroy()
-            return
+        save = Gtk.Button(label="Save settings")
+        save.connect("clicked", self.save_settings, port, origins, rotate)
+        grid.attach(save, 0, 3, 2, 1)
+        return grid
+
+    def save_settings(self, _button, port, origins, rotate):
+        saved = load_settings(self.path)
         new_port = port.get_value_as_int()
         selected = origins.get_text().split()
-        rotate_token = rotate.get_active()
-        dialog.destroy()
-        if new_port != saved["port"] and not available_port(new_port):
-            self.message("The selected port is already in use.")
+        if new_port == saved.get("tunnel_port") or (
+            new_port != saved["port"] and not available_port(new_port)
+        ):
+            self.feedback.set_text("The local port is already in use.")
             return
-        for origin in selected:
-            url = urlsplit(origin)
-            if (
-                url.scheme != "https"
-                or not url.hostname
-                or url.path
-                or url.query
-                or url.fragment
-                or url.username
-            ):
-                self.message(
-                    "Use space-separated HTTPS origins without paths, credentials or query strings."
-                )
-                return
+        if any(
+            urlsplit(origin).scheme != "https"
+            or not urlsplit(origin).netloc
+            or urlsplit(origin).path
+            or urlsplit(origin).query
+            or urlsplit(origin).fragment
+            for origin in selected
+        ):
+            self.feedback.set_text(
+                "Enter HTTPS origins without any path, query or fragment."
+            )
+            return
         config = {**saved, "port": new_port, "origins": selected}
-        if rotate_token:
+        if rotate.get_active():
             config["token"] = secrets.token_urlsafe(32)
         running = not systemctl("is-active", USER_UNIT, check=False).returncode
         write_settings(self.path, config)
@@ -217,10 +328,13 @@ class Tray:
             if result.returncode:
                 write_settings(self.path, saved)
                 systemctl("restart", USER_UNIT, check=False)
-                self.message(
+                self.feedback.set_text(
                     result.stderr.strip()
                     or "The service did not accept the new settings."
                 )
+                return
+        rotate.set_active(False)
+        self.feedback.set_text("Settings saved.")
         self.refresh()
 
 

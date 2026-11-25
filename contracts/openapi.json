@@ -2189,6 +2189,49 @@
           "error_code": {
             "type": "string",
             "minLength": 1
+          },
+          "error_detail": {
+            "type": "string"
+          },
+          "installation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "installed",
+              "runtime",
+              "hardware",
+              "disk_mib",
+              "memory_mib"
+            ],
+            "properties": {
+              "installed": {
+                "type": "boolean"
+              },
+              "runtime": {
+                "enum": [
+                  "python-venv",
+                  "ollama"
+                ]
+              },
+              "hardware": {
+                "enum": [
+                  "cpu",
+                  "cuda"
+                ]
+              },
+              "disk_mib": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "memory_mib": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "vram_mib": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         },
         "required": [

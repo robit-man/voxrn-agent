@@ -7,6 +7,10 @@ const statusLine = field("status");
 const output = field("output");
 let request;
 let audioUrl;
+let tunnelMode;
+let runtimeIdentity;
+let voices = [];
+const readyModelNames = { current: [], next: [] };
 
 function option(parent, value, label = value) {
   parent.add(new Option(label, value));
@@ -48,7 +52,110 @@ function clearResponse() {
   field("download").removeAttribute("href");
   field("download").hidden = true;
   output.textContent = "";
+  if (field("artifact")) field("artifact").hidden = true;
 }
+
+function playAudio(audio) {
+  audioUrl = URL.createObjectURL(audio);
+  field("audio").src = audioUrl;
+  field("audio").hidden = false;
+  field("download").href = audioUrl;
+  field("download").hidden = false;
+}
+
+function runtimeHeaders() {
+  const headers = new Headers();
+  const token = field("token").value.trim();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+async function fetchRuntime(path) {
+  const response = await fetch(serviceUrl() + path, {
+    headers: runtimeHeaders(), redirect: "error", cache: "no-store", signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`Runtime returned HTTP ${response.status}.`);
+  return response.json();
+}
+
+function updateSelect(select, names, state, placeholder) {
+  state.next = names;
+  if (JSON.stringify(state.current) === JSON.stringify(names)) return;
+  if (document.activeElement === select) {
+    if (!state.waiting) {
+      state.waiting = true;
+      select.addEventListener("blur", () => {
+        state.waiting = false;
+        updateSelect(select, state.next, state, placeholder);
+      }, {once: true});
+    }
+    return;
+  }
+  const selected = select.value;
+  select.replaceChildren();
+  if (placeholder) option(select, "", placeholder);
+  names.forEach(name => option(select, name));
+  if (names.includes(selected)) select.value = selected;
+  state.current = names;
+}
+
+async function fetchCapabilities() {
+  const limits = await fetchRuntime("/v1/capabilities");
+  if (`voxrn-${limits.service}` !== runtimeIdentity) {
+    throw new Error("This endpoint serves a different VoxRN API.");
+  }
+  const names = limits.models.map(row => row.identity.model);
+  updateSelect(field("model"), names, readyModelNames, "Use request body");
+  document.dispatchEvent(new CustomEvent("voxrn:capabilities", { detail: limits }));
+  return limits;
+}
+
+async function connect() {
+  field("connect").disabled = true;
+  const status = field("connection-status");
+  status.textContent = "Connecting…";
+  try {
+    if (new URL(serviceUrl()).hostname.endsWith(".trycloudflare.com")) tunnelMode = "quick";
+    const limits = await fetchCapabilities();
+    if (limits.service === "tts") voices = (await fetchRuntime("/v1/voices")).voices;
+    document.getElementById("model-control").open = true;
+    await refreshModels();
+    field("share").hidden = !tunnelMode;
+    const note = tunnelMode === "quick" ? " · Quick Tunnel · SSE requires a named tunnel" : "";
+    status.textContent = `Connected · ${limits.models.length} ready models${note}`;
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    field("connect").disabled = false;
+  }
+}
+
+function selectRequestModel() {
+  if (!field("model").value || field("body-label").hidden) return;
+  try {
+    const body = JSON.parse(field("body").value);
+    if (!Object.hasOwn(body, "model")) return;
+    body.model = field("model").value;
+    if (Object.hasOwn(body, "voice") && voices.length) {
+      const matches = voices.filter(voice => voice.models.includes(body.model));
+      if (matches.length && !matches.some(voice => voice.id === body.voice)) body.voice = matches[0].id;
+    }
+    field("body").value = JSON.stringify(body, null, 2);
+  } catch { /* The editor reports invalid JSON if submitted. */ }
+}
+
+field("model").addEventListener("change", selectRequestModel);
+field("connect").addEventListener("click", connect);
+field("share").addEventListener("click", async () => {
+  try {
+    const url = new URL(location.href);
+    url.hash = new URLSearchParams({endpoint: serviceUrl(), key: field("token").value.trim(), transport: tunnelMode});
+    await navigator.clipboard.writeText(url.href);
+    field("connection-status").textContent = "Connection link copied.";
+  } catch (error) {
+    field("connection-status").textContent = error.message;
+  }
+});
 
 async function display(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -56,19 +163,26 @@ async function display(response) {
   statusLine.textContent = `HTTP ${response.status}${identifier ? ` · Request ${identifier}` : ""}`;
   if (response.ok && contentType.startsWith("audio/")) {
     const audio = await response.blob();
-    audioUrl = URL.createObjectURL(audio);
-    field("audio").src = audioUrl;
-    field("audio").hidden = false;
-    field("download").href = audioUrl;
-    field("download").hidden = false;
+    playAudio(audio);
     output.textContent = `${audio.size} bytes · ${audio.type}`;
   } else if (contentType.includes("text/event-stream") && response.body) {
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    const onEvent = typeof receiveSpeechEvent === "function" ? receiveSpeechEvent() : null;
+    let buffered = "";
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         output.append(document.createTextNode(value));
+        if (onEvent) {
+          const events = (buffered + value).split(/\r?\n\r?\n/);
+          buffered = events.pop();
+          for (const event of events) {
+            const data = event.split(/\r?\n/).filter(line => line.startsWith("data:"))
+              .map(line => line.slice(5).trimStart()).join("\n");
+            if (data) await onEvent(JSON.parse(data));
+          }
+        }
       }
     } finally {
       reader.releaseLock();
@@ -76,7 +190,9 @@ async function display(response) {
   } else {
     const body = await response.text();
     try {
-      output.textContent = JSON.stringify(JSON.parse(body), null, 2);
+      const decoded = JSON.parse(body);
+      output.textContent = JSON.stringify(decoded, null, 2);
+      if (response.ok && typeof offerSpeechArtifact === "function") offerSpeechArtifact(decoded);
     } catch {
       output.textContent = body;
     }
@@ -155,6 +271,7 @@ async function modelControlRequest(model, enabled) {
 
 let modelRefreshTimer;
 let modelRefreshVersion = 0;
+const modelItems = new Map();
 
 async function refreshModels() {
   clearTimeout(modelRefreshTimer);
@@ -164,31 +281,52 @@ async function refreshModels() {
   try {
     const { models } = await modelControlRequest();
     if (version !== modelRefreshVersion) return;
-    list.replaceChildren();
+    const current = new Set();
     for (const row of models) {
-      const item = document.createElement("li");
       const model = row.identity.model;
-      const toggle = document.createElement("button");
-      toggle.type = "button";
+      current.add(model);
+      if (!modelItems.has(model)) {
+        const item = document.createElement("li");
+        const label = document.createTextNode("");
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.addEventListener("click", async () => {
+          toggle.disabled = true;
+          try {
+            await modelControlRequest(model, toggle.dataset.enabled !== "true");
+            await refreshModels();
+            await fetchCapabilities();
+          } catch (error) {
+            status.textContent = error.message;
+          } finally {
+            toggle.disabled = false;
+          }
+        });
+        item.append(label, toggle);
+        list.append(item);
+        modelItems.set(model, {item, label, toggle});
+      }
+      const {label, toggle} = modelItems.get(model);
+      const plan = row.installation;
+      const install = plan && !plan.installed ? ` · download on enable (${plan.disk_mib} MiB disk)` : "";
+      const hardware = plan?.hardware === "cuda" ? " · requires CUDA" : "";
+      const failure = row.error_detail || row.error_code || "";
+      label.textContent = `${model} · ${row.state} · ${row.active_requests} active${install}${hardware} ${failure} `;
+      toggle.dataset.enabled = String(row.enabled);
       toggle.textContent = row.enabled ? "Disable" : "Enable";
-      toggle.addEventListener("click", async () => {
-        toggle.disabled = true;
-        try {
-          await modelControlRequest(model, !row.enabled);
-          await refreshModels();
-        } catch (error) {
-          toggle.disabled = false;
-          status.textContent = error.message;
-        }
-      });
-      item.append(document.createTextNode(
-        `${model} · ${row.state} · ${row.active_requests} active ${row.error_code || ""} `
-      ), toggle);
-      list.append(item);
+    }
+    for (const [model, {item}] of modelItems) {
+      if (!current.has(model)) {
+        item.remove();
+        modelItems.delete(model);
+      }
     }
     status.textContent = models.length ? "" : "No installed model profiles.";
     if (models.some(row => ["loading", "draining"].includes(row.state))) {
-      modelRefreshTimer = setTimeout(refreshModels, 750);
+      modelRefreshTimer = setTimeout(async () => {
+        await refreshModels();
+        await fetchCapabilities().catch(() => {});
+      }, 750);
     }
   } catch (error) {
     if (version === modelRefreshVersion) status.textContent = error.message;
@@ -206,6 +344,7 @@ async function loadConsole() {
   const [openapi, metadata, examples] = await Promise.all([
     load("contracts/openapi.json"), load("discovery.json"), load("contracts/examples.json"),
   ]);
+  runtimeIdentity = metadata.name.toLowerCase().replaceAll(" ", "-");
   const configs = new Map();
   for (const [path, methods] of Object.entries(openapi.paths)) {
     for (const [method, spec] of Object.entries(methods)) {
@@ -233,9 +372,6 @@ async function loadConsole() {
     configs.set(name, { type: "mcp", tool: tool.name });
     option(operation, name);
   }
-  if (location.pathname === "/docs/" || location.pathname === "/docs/index.html") {
-    field("url").value = location.origin;
-  }
   operation.value = "GET /v1/capabilities";
 
   function render() {
@@ -243,6 +379,7 @@ async function loadConsole() {
     const http = config.type === "http";
     field("id-label").hidden = !(http && config.path.includes("{"));
     field("file-label").hidden = !config.media;
+    if (field("mic-actions")) field("mic-actions").hidden = !config.media;
     field("key-label").hidden = !config.idempotent;
     field("cursor-label").hidden = !config.replay;
     if (config.idempotent) field("key").value = crypto.randomUUID();
@@ -251,6 +388,10 @@ async function loadConsole() {
     field("body").value = JSON.stringify(initialBody(config, examples), null, 2);
     field("accept").replaceChildren();
     for (const format of config.outputTypes || []) option(field("accept"), format);
+    if (tunnelMode === "quick" && config.outputTypes?.includes("application/json")) {
+      field("accept").value = "application/json";
+    }
+    selectRequestModel();
   }
   operation.addEventListener("change", render);
   field("stop").addEventListener("click", () => request?.abort());
@@ -273,6 +414,10 @@ async function loadConsole() {
       if (!mcp && config.path.includes("{") && !id) throw new Error("Enter a run or media ID.");
       const url = serviceUrl() + path;
       const body = mcp ? toolRequest(config, metadata, headers) : httpRequest(config, headers);
+      const jsonStream = !mcp && path === "/v1/chat/completions" && body && JSON.parse(body).stream;
+      if (tunnelMode === "quick" && !mcp && (field("accept").value === "text/event-stream" || jsonStream)) {
+        throw new Error("Use a named Cloudflare tunnel to test server-sent events.");
+      }
       statusLine.textContent = "Waiting for the runtime…";
       await display(await fetch(url, {
         method: mcp ? "POST" : config.method, headers, body, signal: request.signal, redirect: "error", cache: "no-store",
@@ -288,10 +433,29 @@ async function loadConsole() {
       field("stop").disabled = true;
     }
   });
-  render();
+  async function hydrateLink() {
+    const session = window.voxrnConnection;
+    delete window.voxrnConnection;
+    const linkedEndpoint = session?.endpoint || field("url").value;
+    if (linkedEndpoint && session?.key) {
+      field("url").value = linkedEndpoint;
+      field("token").value = session.key;
+      tunnelMode = session.transport || (new URL(linkedEndpoint).hostname.endsWith(".trycloudflare.com") ? "quick" : "named");
+      await connect();
+    }
+    render();
+  }
+
+  window.addEventListener("voxrn:connection", () => {
+    hydrateLink().catch(error => { statusLine.textContent = error.message; });
+  });
+  await hydrateLink();
   statusLine.textContent = "Ready";
 }
 
+if (location.pathname === "/docs/" || location.pathname === "/docs/index.html") {
+  field("url").value = location.origin;
+}
 field("run").disabled = true;
 loadConsole().then(() => { field("run").disabled = false; }).catch((error) => {
   statusLine.textContent = error.message;

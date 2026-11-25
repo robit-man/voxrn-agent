@@ -25,6 +25,7 @@ class Entry:
     loaded: bool = False
     needs_cleanup: bool = False
     error: str | None = None
+    error_detail: str | None = None
     idle: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task | None = None
 
@@ -40,6 +41,10 @@ class Entry:
         }
         if self.error is not None:
             result["error_code"] = self.error
+            if self.error_detail:
+                result["error_detail"] = self.error_detail
+        if hasattr(self.adapter, "installation"):
+            result["installation"] = self.adapter.installation()
         return result
 
 
@@ -115,7 +120,7 @@ class ModelControl:
             ) from exc
         self._lock_file = lock
 
-    async def start(self):
+    async def start(self, *, wait=True):
         self._open_lock()
         self._stopping = False
         try:
@@ -125,7 +130,7 @@ class ModelControl:
                 for entry in self.entries.values()
                 if entry.enabled
             ]
-            if tasks:
+            if tasks and wait:
                 await asyncio.shield(asyncio.gather(*tasks))
         except BaseException:
             await self.stop()
@@ -224,6 +229,12 @@ class ModelControl:
         return entry.enabled and not self._stopping
 
     def _schedule(self, entry):
+        if (
+            not self._wanted(entry)
+            and entry.state == "loading"
+            and hasattr(entry.adapter, "cancel_preparing")
+        ):
+            entry.adapter.cancel_preparing()
         if not self._wanted(entry) and entry.loaded and entry.state == "ready":
             entry.state = "draining"
         if entry.task is None or entry.task.done():
@@ -237,6 +248,7 @@ class ModelControl:
         entry.error = (
             error.code if isinstance(error, Problem) else f"model_{action}_failed"
         )
+        entry.error_detail = error.detail if isinstance(error, Problem) else None
         LOG.error(
             "Model %s %s failed (%s)",
             entry.identity["model"],
@@ -278,7 +290,15 @@ class ModelControl:
                 await self.load(entry.adapter)
             except Exception as exc:
                 entry.needs_cleanup = True
-                if await self._cleanup(entry):
+                if not await self._cleanup(entry):
+                    return
+                if self._wanted(entry):
+                    if (
+                        isinstance(exc, Problem)
+                        and exc.code == "model_provision_cancelled"
+                    ):
+                        continue
                     self._fail(entry, "load", exc)
-                return
+                    return
+                continue
             entry.loaded = True

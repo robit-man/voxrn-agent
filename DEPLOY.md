@@ -2,7 +2,7 @@
 
 ## Local service and tray
 
-Run `./setup.sh` as the service owner on Ubuntu 24.04 or Debian 12 with systemd and a user session. The installer uses sudo for missing APT packages, checks architecture and ports, provisions an isolated Python environment and pinned model assets, installs the user service, and waits for readiness and authenticated capabilities. It enables service startup at user login. Keep the checkout in place because the service unit refers to it.
+Run `./setup.sh` as the service owner on Ubuntu 24.04 or Debian 12 with systemd and a user session. The installer uses sudo for missing APT packages, checks architecture and ports, provisions an isolated API environment, installs the user service, and waits for readiness and authenticated capabilities. It enables service startup at user login. Keep the checkout in place because the service unit refers to it.
 
 The service listens at `http://127.0.0.1:8313` by default. The API console lives at `/docs/`. Set `--port` to change it. The tray shows active and enabled status, opens the console, copies the bearer token, and controls start, stop, restart, enable, and disable. Its Settings dialog adjusts the local port, allowed browser origins and bearer token. It starts inside a graphical session with AppIndicator support. Use `--no-tray` for servers without a desktop. Store the token in the protected settings file and paste it into the console only when calling your runtime.
 
@@ -11,21 +11,21 @@ systemctl --user status voxrn-agent.service
 journalctl --user -u voxrn-agent.service -e
 ```
 
-The installer uses Ollama and Qwen3 0.6B on CPU. For accelerator deployments, provision an Ollama service separately, pin its version and model digest, and configure the VoxRN agent against its URL. The native installer supports x86-64 and arm64 CPU profiles. GPU enumeration, driver installation and automatic GPU leases are outside this installer.
+The installer uses Ollama. The CPU library includes Qwen3 0.6B. For accelerator deployments, provision an Ollama service separately, pin its version and model digest, and configure the VoxRN agent against its URL. The native installer supports x86-64 and arm64 CPU profiles. GPU enumeration, driver installation and automatic GPU leases are outside this installer.
 
 The installer provisions a separate local Ollama process and pins `qwen3:0.6b` by digest. It reuses an installed Ollama binary when available and downloads a checksum-verified release otherwise. The native provider port defaults to 8314. Use `--ollama-port` to choose a different port. For an offline or interrupted installation, `--ollama-model-cache PATH` seeds only the pinned model and checks each blob before importing it. The Compose configuration pairs the installed workflow with the recorded engine version.
 
 
-## Model profiles
+## Model library and remote sessions
 
-See [model control](MODEL_CONTROL.md) for optional weights, runtime enablement and teardown. A native setup stores model assets and dependency environments under its installation prefix. Compose loads the provisioned Ollama model catalog.
+Native setup leaves all profiles disabled and downloads weights when a model is selected. Use the tray, `modelctl`, or the browser to enable one. See [profiles and capacity checks](MODEL_CONTROL.md) and [Cloudflare sessions](TUNNEL.md). Start the Docker baseline with an explicit profile selection as shown below.
 
 ## Containers
 
 Use Docker with the Compose plugin. Provision the private model and data directories before launching the containers. Choose a different port if the native service already uses the default.
 
 ```sh
-./setup.sh --prepare-only --no-tray
+./setup.sh --prepare-only --no-tray --model qwen-local
 docker compose --env-file "${XDG_DATA_HOME:-$HOME/.local/share}/voxrn/agent/compose.env" up -d --build --wait
 ```
 
@@ -56,3 +56,9 @@ These checks cover standalone operation. Fresh Debian and arm64 installations, a
 On Ubuntu 24.04.4 x86-64, a dedicated native installation enabled `qwen3.5-4b`, served real inference, persisted disablement across a systemd restart, and returned to ready after re-enable. Chromium and the GTK dialog under Xvfb separately exercised disable and re-enable through the authenticated management API.
 
 A separately started Compose runtime served a real inference request `f948bddb57d84217812dbb4ad1fe0734`. The uninstall plan left the installation intact. Uninstall then removed its model and data directory, tray process, systemd units, labelled Compose containers and network, and private image tag. Its ports closed, a sibling file survived, and a repeated uninstall reported the installation absent.
+
+## Cloudflare and first-enable verification
+
+VoxRN was tested on Ubuntu 24.04 x86-64 with cloudflared 2026.8.2. Chromium opened the public endpoint directly, hydrated a session link, exercised authentication and discovered the model library. TLS, origin checks, key rotation, and the old key's HTTP 401 response were verified independently. The GTK control panel stayed open through expansion, refresh and asynchronous rotation.
+
+A fresh native install started with no model weights. An explicit first enable provisioned and ran real inference. Disabling released its runtime and retained the installed profile. The named-tunnel configuration is documented for SSE. A named Cloudflare account and hostname were outside this verification.

@@ -34,7 +34,7 @@ services:
       - "${VOXRN_API_DATA_DIR:-${VOXRN_INSTALL_DIR:?Set the provisioned install directory}/data}:/var/lib/voxrn"
       - "${VOXRN_INSTALL_DIR}/workflow:/workflow:ro"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=3)"]
       interval: 10s
       timeout: 4s
       retries: 6

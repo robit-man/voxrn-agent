@@ -8,7 +8,8 @@ from pathlib import Path
 
 from host import BASE, CONFIG, KIND, NAME, PROVIDER_UNIT, ROOT, USER_UNIT, systemctl
 from install_records import install_lock, load_marker, marker_path, stop_owned_process
-from setup_host import unit_quote
+from host import unit_quote
+from tunnel_host import TUNNEL_UNIT, remove_command, session_path
 
 
 def docker_resources(command, label):
@@ -70,7 +71,7 @@ def clean_compose(settings, record):
 
 
 def owned_units(settings):
-    candidates = [USER_UNIT]
+    candidates = [TUNNEL_UNIT, USER_UNIT]
     if KIND == "agent":
         candidates.append(PROVIDER_UNIT)
     for unit in candidates:
@@ -82,6 +83,7 @@ def owned_units(settings):
 def remove_installation(path, record):
     units = list(owned_units(path))
     desktop = CONFIG / "autostart" / f"{NAME}.desktop"
+    session_path(path).unlink(missing_ok=True)
     if units:
         for unit, unit_path in units:
             if unit == USER_UNIT:
@@ -92,7 +94,8 @@ def remove_installation(path, record):
         systemctl("daemon-reload")
     if desktop.is_file() and unit_quote(path, desktop=True) in desktop.read_text():
         desktop.unlink()
-    for role in ("tray", "api", "ollama"):
+    remove_command(path)
+    for role in ("tunnel", "tray", "api", "ollama"):
         stop_owned_process(path, record, role)
     clean_compose(path, record)
     shutil.rmtree(path.parent)
@@ -134,7 +137,7 @@ def main():
         if owns_desktop:
             print(f"Remove {desktop}.")
         print(
-            f"Stop the recorded API, tray, and local provider processes and Compose project for {record['id'][:12]}."
+            f"Stop the recorded API, tunnel, tray, and local provider processes and Compose project for {record['id'][:12]}."
         )
         return
     with install_lock(path):

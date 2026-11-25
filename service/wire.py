@@ -23,6 +23,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
+from .tunnel_access import TunnelAccess, TunnelMiddleware
+
 CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
 OPENAPI = json.loads((CONTRACTS / "openapi.json").read_text())
 CATALOG = json.loads((CONTRACTS / "mcp-tools.json").read_text())
@@ -199,7 +201,9 @@ class Authorization:
                 403, "origin_not_allowed", "The request Origin is not allowed."
             )
 
-    async def authenticate(self, headers):
+    async def authenticate(self, headers, *, scope=None):
+        if scope and (subject := scope.get("state", {}).get("tunnel_subject")):
+            return Principal("voxrn-tunnel", "session", subject, self.scopes)
         self.check_origin(headers)
         scheme, _, token = headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not token or len(token) > 8192:
@@ -280,6 +284,7 @@ def build_service(
     kind, ready, handlers, *, start=None, shutdown=None, model_control=None
 ):
     auth = Authorization(kind)
+    tunnel = TunnelAccess()
     tools = {}
     scopes = {}
     for entry in CATALOG["tools"]:
@@ -344,7 +349,9 @@ def build_service(
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=auth.hosts,
-            allowed_origins=sorted(auth.origins),
+            allowed_origins=sorted(
+                auth.origins | ({tunnel.origin} if tunnel.origin else set())
+            ),
         ),
     )
 
@@ -369,7 +376,9 @@ def build_service(
         try:
             try:
                 if request.url.path == "/mcp" or request.url.path.startswith("/v1/"):
-                    caller_token = CALLER.set(await auth.authenticate(request.headers))
+                    caller_token = CALLER.set(
+                        await auth.authenticate(request.headers, scope=request.scope)
+                    )
                 if request.url.path == "/mcp" and request.method == "POST":
                     supplied = request.headers.get("mcp-protocol-version")
                     if supplied != PROTOCOL:
@@ -474,9 +483,12 @@ def build_service(
         StaticFiles(directory=CONTRACTS.parent / "docs", html=True),
         name="docs",
     )
+    app.add_middleware(TunnelMiddleware, access=tunnel)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=sorted(auth.origins),
+        allow_origins=sorted(
+            auth.origins | ({tunnel.origin} if tunnel.origin else set())
+        ),
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=[
             "Accept",

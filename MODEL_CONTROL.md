@@ -10,13 +10,17 @@
 ./modelctl disable qwen3.5-4b
 ```
 
-Setup provisions a named profile and publishes it as installed. Optional profiles start disabled until explicitly enabled. A model ID selects a profile in the existing inference request; the service catalog lists the enabled models that finished loading. The model state is persisted by exact model and engine identity. A profile with a changed identity gets the configured default for that identity. Use `--prefix` across setup, modelctl and uninstall to select a separate install directory.
+A fresh native setup installs the service runtime and lists the model library without downloading or activating model weights. Enable a profile from the tray, the Pages console, or `modelctl`. The first enable checks available filesystem space and host memory against the profile budget and provisions exact revisions. CUDA profiles also require a supported GPU scope and sufficient reserved memory. Each Python model uses a private virtual environment under `profiles/<model>/venv`. Agent models use the pinned managed Ollama engine and retain a separate profile receipt for each exact model manifest.
 
-For an asset that needs an explicit optional feature, use `./setup.sh --model-feature <model-id>:<feature>`. Use the Pages console's **Manage installed models** panel, the desktop tray's **Models** dialog, or the CLI. An OAuth token needs the `agent:manage` scope for these operations.
+The API reports whether a model is installed, the runtime type, its resource budget and activation status. Disable stops admission, drains requests and releases the worker or runner. The installed environment and weights can be reused on the next enable. Uninstall removes the owned installation. Use the installed command `voxrn-agent-modelctl` anywhere, or supply `--prefix` to the repository commands to select a separate installation.
+
+You can also provision a model explicitly with `./setup.sh --model <model-id>` while keeping its activation separate.
+
+For an asset that needs an explicit optional feature, use `./setup.sh --model-feature <model-id>:<feature>`. Use the Pages console's **Manage model library** panel, the desktop tray's **Models** section, or the CLI. An OAuth token needs the `agent:manage` scope for these operations.
 
 | Endpoint | Effect |
 | --- | --- |
-| `GET /v1/control/models` | Lists installed models, desired enablement, loading or draining status, and in-flight counts |
+| `GET /v1/control/models` | Lists available profiles, installation and resource metadata, desired enablement, and in-flight counts |
 | `PUT /v1/control/models/{model_id}` | Persists `{"enabled": true}` or `{"enabled": false}` and returns 202 |
 
 While a disable is draining, the service stops admitting new requests for that model. Each admitted request holds a lease until its physical work finishes. Then the model releases its worker or owned engine resources. Inspect the installed model list to verify completion. Control stays reachable if every model is disabled. Installed weights and environments stay available for a later enable.

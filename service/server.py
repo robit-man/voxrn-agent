@@ -12,6 +12,7 @@ from anyio import CancelScope
 from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
+from .managed_library import ManagedAdapter, configured_defaults, managed_models
 from .model_control import ModelControl
 from .provider_registry import load_providers
 from .state import IDEMPOTENCY_TTL, RUN_IDLE_TTL, TERMINAL, RunStore
@@ -62,11 +63,14 @@ def provider_features(provider):
 
 
 async def open_provider(provider):
+    if isinstance(provider, ManagedAdapter):
+        await provider.prepare()
     await provider.start()
 
 
 async def close_provider(provider):
-    await provider.close()
+    if not isinstance(provider, ManagedAdapter) or provider.adapter is not None:
+        await provider.close()
 
 
 def create_app(*, provider=None, providers=None, directory=None, workflow_paths=None):
@@ -75,7 +79,9 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
             raise ValueError("Supply either one provider or a provider registry.")
         providers = {provider.identity["model"]: provider}
     if providers is None:
-        providers = load_providers()
+        providers = managed_models(
+            load_providers(), lambda name, _env: load_providers()[name]
+        )
     directory = Path(directory or os.environ.get("VOXRN_DATA_DIR", ".data"))
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     control = ModelControl(
@@ -83,11 +89,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
         directory / "model-control.json",
         load=open_provider,
         unload=close_provider,
-        default_enabled={
-            name
-            for name, candidate in providers.items()
-            if getattr(candidate, "default_enabled", True)
-        },
+        default_enabled=configured_defaults(providers),
     )
     if workflow_paths is None:
         configured = os.environ.get("VOXRN_AGENT_WORKFLOW_DIRS") or os.environ.get(
@@ -216,7 +218,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
 
     async def start():
         nonlocal worker
-        await control.start()
+        await control.start(wait=not os.environ.get("VOXRN_MANAGED_SETTINGS"))
         worker = asyncio.create_task(run_jobs())
 
     async def stop():

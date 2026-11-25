@@ -28,16 +28,8 @@ def main():
         [
             binary,
             "-m",
-            "uvicorn",
-            "service.server:create_app",
-            "--factory",
-            "--host",
-            "127.0.0.1",
-            "--port",
+            "scripts.serve_host",
             str(config["port"]),
-            "--ws-max-size",
-            "32768",
-            "--no-access-log",
         ],
         local_env(args.settings, config),
     )
