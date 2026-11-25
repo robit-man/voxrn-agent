@@ -4,18 +4,28 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from contextlib import AsyncExitStack, aclosing, suppress
 from pathlib import Path
 
 from anyio import CancelScope
 from fastapi import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import JSONResponse
 
 from .managed_library import ManagedAdapter, configured_defaults, managed_models
 from .model_control import ModelControl
+from .ollama_catalog import OllamaCatalog
 from .provider_registry import load_providers
 from .state import IDEMPOTENCY_TTL, RUN_IDLE_TTL, TERMINAL, RunStore
+from .streaming_policy import (
+    BoundedSSE,
+    HEARTBEAT,
+    HEARTBEAT_SECONDS,
+    SSEWriteDeadline,
+    first_packet,
+)
+from .telemetry import mark_failure
 from .wire import (
     CALLER,
     JSON_LIMIT,
@@ -39,19 +49,6 @@ MAX_TOKENS = 1024
 IDENTIFIER = OPENAPI["components"]["schemas"]["RunRequestTool"]["properties"][
     "idempotency_key"
 ]
-
-
-class ChatStream(StreamingResponse):
-    def __init__(self, content, *, resources, headers):
-        super().__init__(content, media_type="text/event-stream", headers=headers)
-        self.resources = resources
-
-    async def __call__(self, scope, receive, send):
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            with CancelScope(shield=True):
-                await self.resources.aclose()
 
 
 def provider_features(provider):
@@ -84,6 +81,9 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
         )
     directory = Path(directory or os.environ.get("VOXRN_DATA_DIR", ".data"))
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    providers = dict(providers)
+    ollama_catalog = OllamaCatalog(providers, directory / "ollama-registrations.json")
+    providers.update(ollama_catalog.restore(providers))
     control = ModelControl(
         providers,
         directory / "model-control.json",
@@ -394,6 +394,18 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
         model_control=control,
     )
 
+    @app.get("/v1/control/ollama/catalog")
+    async def list_ollama_catalog():
+        CALLER.get().require(["agent:manage"])
+        return await ollama_catalog.list(providers)
+
+    @app.post("/v1/control/ollama/registrations", status_code=201)
+    async def register_ollama_model(request: Request):
+        CALLER.get().require(["agent:manage"])
+        pin = await json_body(request, "OllamaRegistrationRequest")
+        result, status = await ollama_catalog.register(pin, providers, control)
+        return JSONResponse(result, status_code=status)
+
     def command_key(request):
         return validate(request.headers.get("idempotency-key"), IDENTIFIER)
 
@@ -463,18 +475,19 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
         async def follow():
             current = cursor
             status, last_seq, events = initial
-            next_pulse = time.monotonic() + 10
+            next_pulse = time.monotonic() + HEARTBEAT_SECONDS
             max_session = time.monotonic() + 120
             while time.monotonic() < max_session:
                 for event in events:
                     current = event["seq"]
                     yield event_sse(event, replay=True)
+                    next_pulse = time.monotonic() + HEARTBEAT_SECONDS
                 if status in TERMINAL and current >= last_seq:
                     return
                 if not events:
                     if time.monotonic() >= next_pulse:
-                        yield ": heartbeat\n\n"
-                        next_pulse = time.monotonic() + 10
+                        yield HEARTBEAT
+                        next_pulse = time.monotonic() + HEARTBEAT_SECONDS
                     await asyncio.sleep(0.1)
                 try:
                     status, last_seq, events = await finish_thread(
@@ -483,11 +496,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
                 except Problem:
                     return
 
-        return StreamingResponse(
-            follow(),
-            media_type="text/event-stream",
-            headers={"X-Accel-Buffering": "no"},
-        )
+        return BoundedSSE(follow(), keepalive=False)
 
     @app.post("/v1/chat/completions")
     async def chat_http(request: Request):
@@ -518,7 +527,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
                 aclosing(provider.stream(options["messages"], tokens))
             )
             async with asyncio.timeout(90):
-                first = await anext(stream)
+                first = await first_packet(request, stream)
         except BaseException as exc:
             with CancelScope(shield=True):
                 await resources.aclose()
@@ -561,11 +570,19 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
                             return
                         packet = await anext(stream)
             except (Problem, TimeoutError, StopAsyncIteration):
+                mark_failure()
                 return
 
-        return ChatStream(
+        return BoundedSSE(
             pump(), resources=resources, headers=provenance(provider.identity)
         )
 
+    app.add_middleware(
+        SSEWriteDeadline,
+        paths=(
+            re.compile(r"/v1/chat/completions"),
+            re.compile(r"/v1/runs/[^/]+/events"),
+        ),
+    )
     app.mount("/", mcp)
     return app

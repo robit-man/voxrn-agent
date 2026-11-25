@@ -14,6 +14,8 @@ from pathlib import Path
 from subprocess import DEVNULL, SubprocessError, check_output
 from urllib.request import ProxyHandler, build_opener
 
+from .trace_context import CURRENT_TRACE, start_span
+
 TRACE = ContextVar("runtime_trace", default=None)
 CLIENT_WINDOW = 60
 MAX_RECORDS = 8192
@@ -69,6 +71,41 @@ def memory_available(host_available):
     return host_available
 
 
+def filesystem_for(target):
+    point = target.resolve()
+    while not point.exists() and point != point.parent:
+        point = point.parent
+    try:
+        data = shutil.disk_usage(point)
+    except OSError:
+        return None
+    mount = Path(point.anchor)
+    source = filesystem = "Unknown"
+    try:
+        for line in Path("/proc/self/mountinfo").read_text().splitlines():
+            fields, _, detail = line.partition(" - ")
+            left, right = fields.split(), detail.split()
+            if len(left) < 5 or len(right) < 2:
+                continue
+            candidate = Path(
+                re.sub(r"\\([0-7]{3})", lambda part: chr(int(part[1], 8)), left[4])
+            )
+            if len(candidate.parts) >= len(mount.parts) and point.is_relative_to(
+                candidate
+            ):
+                mount = candidate
+                filesystem, source = right[:2]
+    except OSError:
+        pass
+    return {
+        "mount": str(mount),
+        "source": source,
+        "filesystem": filesystem,
+        "free_bytes": data.free,
+        "total_bytes": data.total,
+    }
+
+
 def read_host(path):
     try:
         cpu = list(
@@ -93,7 +130,7 @@ def read_gpus():
         values = check_output(
             [
                 "nvidia-smi",
-                "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                "--query-gpu=uuid,name,utilization.gpu,memory.used,memory.total",
                 "--format=csv,noheader,nounits",
             ],
             text=True,
@@ -102,10 +139,13 @@ def read_gpus():
         )
         rows = []
         for index, line in enumerate(values.splitlines()):
-            name, usage, used, total = (value.strip() for value in line.rsplit(",", 3))
+            uuid, name, usage, used, total = (
+                value.strip() for value in line.rsplit(",", 4)
+            )
             rows.append(
                 {
                     "index": index,
+                    "uuid": uuid,
                     "name": name,
                     "utilization": int(usage) if usage.isdigit() else None,
                     "memory_used_mib": int(used),
@@ -157,7 +197,7 @@ def ollama_runners():
         return {}
 
 
-def fit_health(entry, host, cpu, rss, audio_rtf):
+def fit_health(entry, host, cpu, rss, audio_rtf, placement=None, gpu=None):
     adapter = entry.adapter
     if host is None or not hasattr(adapter, "installation"):
         return None
@@ -173,6 +213,8 @@ def fit_health(entry, host, cpu, rss, audio_rtf):
         2 if plan["installed"] else host["filesystem_free_bytes"] / disk_required
     )
     details = [f"Memory headroom {memory_ratio:.2f}× budget"]
+    if placement:
+        details.append(f"Model volume {placement['source']} at {placement['mount']}")
     if not plan["installed"]:
         details.append(f"Filesystem headroom {disk_ratio:.2f}× installation budget")
     gpu_ready = plan["hardware"] != "cuda" or (
@@ -185,6 +227,14 @@ def fit_health(entry, host, cpu, rss, audio_rtf):
     )
     if not gpu_ready:
         details.append("No scoped GPU runtime configured")
+    if gpu_ready and plan["hardware"] == "cuda" and not entry.loaded:
+        if gpu is None:
+            details.append("GPU memory telemetry unavailable")
+            gpu_ready = False
+        else:
+            free_vram = gpu["memory_total_mib"] - gpu["memory_used_mib"]
+            details.append(f"Scoped GPU has {free_vram} MiB free")
+            gpu_ready = free_vram >= plan["vram_mib"]
     if not gpu_ready or memory_ratio < 1 or disk_ratio < 1:
         score = 0
     else:
@@ -220,6 +270,7 @@ def fit_health(entry, host, cpu, rss, audio_rtf):
         "detail": details,
         "rss_bytes": rss,
         "audio_rtf": audio_rtf,
+        "placement": placement,
     }
 
 
@@ -265,6 +316,11 @@ class Telemetry:
         self.previous = None
         self.host = None
         self.path = Path(os.environ.get("VOXRN_DATA_DIR", "."))
+        managed = os.environ.get("VOXRN_MANAGED_SETTINGS")
+        self.model_folder = (
+            Path(managed).parent / "models/ollama" if managed else self.path
+        )
+        self.model_storage = None
 
     def client(self, signature):
         self.clients[signature] = time.time()
@@ -315,8 +371,17 @@ class Telemetry:
             if samples
             else None
         )
+        target = self.model_folder
+        scope = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        gpu = next((item for item in self.gpus if item["uuid"] == scope), None)
         return fit_health(
-            entry, self.host, self.cpu, worker_memory(entry, self.runners), rtf
+            entry,
+            self.host,
+            self.cpu,
+            worker_memory(entry, self.runners),
+            rtf,
+            filesystem_for(target),
+            gpu,
         )
 
     def model_enter(self, model):
@@ -388,6 +453,7 @@ class Telemetry:
             if loop % 5 == 0:
                 self.gpus = await asyncio.to_thread(read_gpus)
             self.runners = await asyncio.to_thread(ollama_runners)
+            self.model_storage = filesystem_for(self.model_folder)
             if self.control:
                 self.health = {
                     name: health
@@ -475,13 +541,21 @@ class Telemetry:
 
         return {
             "health": self.health,
+            "model_storage": self.model_storage,
             "since": self.started,
             "window_seconds": window,
             "client_window_seconds": CLIENT_WINDOW,
             "clients": clients,
             "websockets": sockets,
             "active_requests": active,
-            "host": {**self.host, "cpu": self.cpu, "gpus": self.gpus}
+            "host": {
+                **self.host,
+                "cpu": self.cpu,
+                "gpus": [
+                    {key: value for key, value in item.items() if key != "uuid"}
+                    for item in self.gpus
+                ],
+            }
             if self.host
             else None,
             "samples": [row for row in self.samples if row["time"] >= cutoff],
@@ -530,6 +604,8 @@ class RuntimeMiddleware:
         start = time.monotonic()
         status = 500
         token = TRACE.set(trace)
+        span = start_span(scope.get("headers", ()))
+        trace_token = CURRENT_TRACE.set(span)
         self.telemetry.active[id(trace)] = trace
 
         async def observed(message):
@@ -539,6 +615,17 @@ class RuntimeMiddleware:
                 "websocket.http.response.start",
             }:
                 status = message["status"]
+                message = {
+                    **message,
+                    "headers": [
+                        *(
+                            header
+                            for header in message.get("headers", ())
+                            if header[0] != b"traceparent"
+                        ),
+                        (b"traceparent", span.encode("ascii")),
+                    ],
+                }
             elif message["type"] == "websocket.accept":
                 status = 200
             elif message["type"] == "websocket.close" and status == 500:
@@ -560,4 +647,5 @@ class RuntimeMiddleware:
                 )
             )
             self.telemetry.active.pop(id(trace), None)
+            CURRENT_TRACE.reset(trace_token)
             TRACE.reset(token)

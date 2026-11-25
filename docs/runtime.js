@@ -81,7 +81,7 @@ function chart() {
   ctx.fillText("Now", right - 21, height - 8);
 }
 
-function hostChips(host) {
+function hostChips(host, storage) {
   const container = runtimeField("host");
   if (!host) {
     container.replaceChildren();
@@ -90,7 +90,9 @@ function hostChips(host) {
   const metrics = [
     ["CPU", (host.cpu === null ? "Sampling" : host.cpu + "%") + " · " + host.logical_cpus + " threads"],
     ["RAM", displayBytes(host.memory_used_bytes) + " / " + displayBytes(host.memory_bytes)],
-    ["Storage", displayBytes(host.filesystem_free_bytes) + " free"],
+    ...(storage ? [["Model disk", displayBytes(storage.free_bytes) + " free of " + displayBytes(storage.total_bytes) +
+      " · " + storage.source + " mounted at " + storage.mount]] :
+      [["Storage", displayBytes(host.filesystem_free_bytes) + " free"]]),
     ["Host", host.architecture],
   ];
   for (const gpu of host.gpus || []) {
@@ -152,7 +154,7 @@ function renderSnapshot(response) {
   runtimeField("client-detail").textContent = response.websockets + " open WebSockets · Clients seen in " + response.client_window_seconds + "s";
   const uptime = Math.max(0, Math.floor(Date.now() / 1000 - response.since));
   runtimeField("message").textContent = "Process up " + (uptime < 60 ? uptime + "s" : Math.floor(uptime / 60) + "m") + " · Metrics refresh every 4s";
-  hostChips(response.host);
+  hostChips(response.host, response.model_storage);
   updateSelect(runtimeField("endpoint"), response.endpoint_options, endpointPicker, "All endpoints");
   updateSelect(runtimeField("model-filter"), response.model_options, modelPicker, "All models");
   document.dispatchEvent(new CustomEvent("voxrn:health", {detail: response.health}));

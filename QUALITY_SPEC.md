@@ -31,3 +31,21 @@ The ASR design review supplies the baseline. Apply the shared acceptance criteri
 `GET /v1/control/runtime` is authenticated by the same management scope as model control. It provides bounded per-process samples and events for the last 60, 300, or 900 seconds. Canonical route names carry no media IDs, run IDs, full URLs or inputs. Current load, recent authenticated clients, and open WebSockets have distinct definitions. The dashboard estimates resource fit from pinned budgets, current storage and memory headroom, host CPU pressure and available runtime measurements. Audio real-time factor is measured inference time divided by processed audio duration. Forecast scores are labeled as estimates until observed evidence exists.
 
 The first release gates are contract validation, generated artifact consistency, runtime conformance and benchmark reproducibility. A code merge or healthy listener alone does not establish performance, reliability or multi-host qualification.
+
+## HTTP trace correlation
+
+A valid version-zero W3C `traceparent` keeps its trace ID and receives a new service span ID. The response exposes this value beside `X-Request-ID`. A malformed or duplicate tracing header creates a fresh trace. The runtime carries the context within the request and omits vendor baggage and credentials. Collector export and durable cross-job tracing require separate verification. [W3C Trace Context](https://www.w3.org/TR/trace-context/)
+
+## Admission limits
+
+Set VOXRN_PER_PRINCIPAL_SLOTS to cap concurrent inference for an authenticated principal within the service-wide slot limit. If omitted, the existing global limit also bounds each principal. The runtime returns 429 with Retry-After and a principal-specific capacity code when a caller exceeds its allocation while global slots remain. A slot is released when its admitted physical work exits. Token- or audio-second budgets require separate metered admission.
+
+## Ollama catalog interoperability
+
+The management API lists already-installed models from the configured Ollama provider. An operator can register a catalog entry by its exact tag and observed digest. Registration leaves download, residency and enablement under the normal model control policy. Imported profiles preserve the actual provider version and immutable digest in responses. A changed upstream tag fails identity verification before inference. Imported entries may serve stateless chat. Admission to a durable workflow still requires its exact bundle identity and declared capabilities.
+
+The API accepts a tag and digest from an observed catalog. Provider addresses come from deployment configuration. A passing check verifies catalog discovery, unauthorized and stale-digest refusal, load state, one raw provider call and exact model provenance. The dashboard shows the configured provider and optional registration action while preserving locally provisioned profiles.
+
+## Model placement storage
+
+The dashboard reports the filesystem containing the managed Ollama weight directory, with its mount source and available and total bytes. This measurement describes the configured local installation. The catalog reports imported model sizes using the configured provider inventory.

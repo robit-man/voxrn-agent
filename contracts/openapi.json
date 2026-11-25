@@ -741,7 +741,13 @@
               "pattern": "^[0-9]+$"
             }
           }
-        ]
+        ],
+        "description": "Durable events retain their existing IDs and are replayable using Last-Event-ID. SSE comments carry no event ID.",
+        "x-voxrn-streaming": {
+          "heartbeatSeconds": 10,
+          "heartbeatComment": ": heartbeat",
+          "writeDeadlineSeconds": 15
+        }
       }
     },
     "/v1/chat/completions": {
@@ -886,6 +892,13 @@
               }
             }
           }
+        },
+        "description": "Streaming chat includes SSE comment heartbeats after the first provider packet when a subsequent packet stalls. Check for both the finish reason and the [DONE] marker.",
+        "x-voxrn-streaming": {
+          "heartbeatSeconds": 10,
+          "heartbeatComment": ": heartbeat",
+          "writeDeadlineSeconds": 15,
+          "maxPendingPublisherFrames": 1
         }
       }
     },
@@ -1103,6 +1116,174 @@
             }
           }
         ]
+      }
+    },
+    "/v1/control/ollama/catalog": {
+      "get": {
+        "operationId": "listOllamaCatalog",
+        "summary": "Inspect the configured Ollama model inventory",
+        "description": "Reads inventory metadata for already-installed tags from the configured backend. The response identifies tags already registered under an exact model and engine revision.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configured Ollama provider and installed model tags",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OllamaCatalog"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/v1/control/ollama/registrations": {
+      "post": {
+        "operationId": "registerOllamaModel",
+        "summary": "Register one exact installed Ollama revision for chat",
+        "description": "Requires a tag and digest from the configured provider inventory. A new registration is disabled until an operator enables it through model control. Registration does not pull weights, load a runner or authorize structured workflow execution.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OllamaRegistrationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The exact revision is already registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledModel"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The exact revision was registered as a disabled chat model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledModel"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem502"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
       }
     }
   },
@@ -2518,11 +2699,180 @@
                     "null"
                   ],
                   "minimum": 0
+                },
+                "placement": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelStorage"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               }
             }
+          },
+          "model_storage": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ModelStorage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
+      },
+      "ModelStorage": {
+        "type": "object",
+        "required": [
+          "mount",
+          "source",
+          "filesystem",
+          "free_bytes",
+          "total_bytes"
+        ],
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "filesystem": {
+            "type": "string"
+          },
+          "free_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "OllamaRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
+            "description": "Exact tag reported by the configured Ollama inventory."
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Exact lowercase SHA-256 model manifest digest."
+          }
+        },
+        "required": [
+          "tag",
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "OllamaRegistrationPin": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
+            "description": "Exact tag reported by the configured Ollama inventory."
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Exact lowercase SHA-256 model manifest digest."
+          },
+          "engine_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "tag",
+          "digest",
+          "engine_revision"
+        ],
+        "additionalProperties": false
+      },
+      "OllamaCatalogProvider": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Backend address selected by deployment configuration."
+          },
+          "engine": {
+            "const": "ollama"
+          },
+          "engine_revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "url",
+          "engine",
+          "engine_revision"
+        ],
+        "additionalProperties": false
+      },
+      "OllamaCatalogModel": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$",
+            "description": "Exact tag reported by the configured Ollama inventory."
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Exact lowercase SHA-256 model manifest digest."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "registered_model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          }
+        },
+        "required": [
+          "tag",
+          "digest",
+          "size_bytes"
+        ],
+        "additionalProperties": false
+      },
+      "OllamaCatalog": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/OllamaCatalogProvider"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OllamaCatalogModel"
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "models"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {

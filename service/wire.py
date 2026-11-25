@@ -204,7 +204,15 @@ class Authorization:
 
     async def authenticate(self, headers, *, scope=None):
         if scope and (subject := scope.get("state", {}).get("tunnel_subject")):
-            return Principal("voxrn-tunnel", "session", subject, self.scopes)
+            level = scope["state"].get("tunnel_scope", "admin")
+            scopes = (
+                self.scopes
+                if level == "admin"
+                else frozenset(
+                    item for item in self.scopes if not item.endswith(":manage")
+                )
+            )
+            return Principal("voxrn-tunnel", "session", subject, scopes)
         self.check_origin(headers)
         scheme, _, token = headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not token or len(token) > 8192:
@@ -529,9 +537,16 @@ def build_service(
             "MCP-Protocol-Version",
             "Mcp-Method",
             "Mcp-Name",
+            "Traceparent",
             "X-VoxRN-Client-ID",
         ],
-        expose_headers=["X-Request-ID", "Location", "Retry-After", "WWW-Authenticate"],
+        expose_headers=[
+            "X-Request-ID",
+            "Location",
+            "Retry-After",
+            "WWW-Authenticate",
+            "Traceparent",
+        ],
     )
     app.add_middleware(RuntimeMiddleware, telemetry=telemetry)
     return app, mcp
@@ -547,14 +562,22 @@ def request_context():
 
 
 class Admission:
-    """Reject queue overflow instead of allowing unbounded inference work."""
+    """Bound global and per-principal in-flight inference."""
 
     def __init__(self, slots):
         self.slots = slots
         self.active = 0
+        self.per_principal = min(
+            slots, int(os.environ.get("VOXRN_PER_PRINCIPAL_SLOTS", slots))
+        )
+        if self.per_principal < 1:
+            raise ValueError("VOXRN_PER_PRINCIPAL_SLOTS must be positive.")
+        self.owners = {}
 
     @asynccontextmanager
-    async def use(self):
+    async def use(self, *, principal=None):
+        caller = principal or CALLER.get(None)
+        owner = caller.owner if caller else None
         if self.active >= self.slots:
             raise Problem(
                 429,
@@ -562,11 +585,24 @@ class Admission:
                 "All inference slots are in use.",
                 retryable=True,
             )
+        if owner is not None and self.owners.get(owner, 0) >= self.per_principal:
+            raise Problem(
+                429,
+                "principal_capacity_exhausted",
+                "This principal has reached its concurrent inference limit.",
+                retryable=True,
+            )
         self.active += 1
+        if owner is not None:
+            self.owners[owner] = self.owners.get(owner, 0) + 1
         try:
             yield
         finally:
             self.active -= 1
+            if owner is not None:
+                self.owners[owner] -= 1
+                if not self.owners[owner]:
+                    del self.owners[owner]
 
 
 async def finish_thread(function, *args, **kwargs):

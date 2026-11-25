@@ -32,3 +32,13 @@ voxrn-agent-tunnel open --named-url https://service.example --token-file /path/t
 ```
 
 The Cloudflare connector token configures the tunnel. The generated VoxRN session key controls requests to the API. [Cloudflare named tunnel setup](https://developers.cloudflare.com/tunnel/get-started/)
+
+## Expiring inference sessions
+
+Use the local operator command to rotate an existing session into an inference-only credential with an explicit lifetime. This removes model-management scope from remote requests. The local operator can still manage the runtime.
+
+```sh
+voxrn-agent-tunnel rotate --scope inference --ttl 900 --direct
+```
+
+Rotation preserves the session identity, clears its previous key and renews its configured lifetime. Use the same flags with open to set the first key. Status reports the scope and optional expiry timestamp.

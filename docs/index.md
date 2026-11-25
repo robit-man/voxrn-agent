@@ -101,6 +101,8 @@ Check `result.isError` and `result.structuredContent.ok`. Read `data` on success
 - `GET /v1/control/models` — Inspect installed model profiles, lifecycle state, and in-flight request counts
 - `PUT /v1/control/models/{model_id}` — Enable an installed model or stop admission and drain it
 - `GET /v1/control/runtime` — Inspect utilization of this runtime, models, endpoints and lifecycle
+- `GET /v1/control/ollama/catalog` — Inspect the configured Ollama model inventory
+- `POST /v1/control/ollama/registrations` — Register one exact installed Ollama revision for chat
 
 ## Contracts
 

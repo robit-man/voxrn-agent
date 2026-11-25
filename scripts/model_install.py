@@ -114,7 +114,10 @@ def require_gpu(spec):
 
 
 def require_capacity(prefix, spec, *, installed=False, activation=True):
-    free = shutil.disk_usage(prefix).free // 1024**2
+    volume = prefix
+    while not volume.exists() and volume != volume.parent:
+        volume = volume.parent
+    free = shutil.disk_usage(volume).free // 1024**2
     if not installed and free < spec["disk_mib"]:
         raise CapacityError(
             "insufficient_model_disk",
@@ -216,7 +219,10 @@ def install(path, name, config, spec, *, features=(), activate=True, python=None
     valid = valid and all(
         Path(value).exists() for value in environment.values() if value.startswith("/")
     )
-    require_capacity(prefix, spec, installed=valid, activation=activate)
+    volume = (
+        prefix / "models/ollama" if "ollama" in spec else descriptor.parent / "assets"
+    )
+    require_capacity(volume, spec, installed=valid, activation=activate)
     model_bytes = None
     if "ollama" in spec:
         model_bytes = install_ollama(path, config, spec, report if activate else None)
@@ -231,7 +237,7 @@ def install(path, name, config, spec, *, features=(), activate=True, python=None
         )
     report("verifying")
     if not valid and activate:
-        require_capacity(prefix, spec, installed=True)
+        require_capacity(volume, spec, installed=True)
     receipt = {"profile": spec, "features": list(features), "environment": environment}
     if model_bytes is not None:
         receipt["model_bytes"] = model_bytes

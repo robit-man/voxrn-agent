@@ -2,11 +2,39 @@
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import httpx
 
 from .ollama_protocol import chat_packet, chat_payload
+from .trace_context import provider_headers
 from .wire import Problem, strict_json
+
+
+def validated_ollama_url(url):
+    parts = urlsplit(url)
+    if (
+        parts.scheme not in {"http", "https"}
+        or not parts.hostname
+        or parts.username is not None
+        or parts.query
+        or parts.fragment
+    ):
+        raise ValueError(
+            "The provider URL must be HTTP(S) without embedded credentials, queries or fragments."
+        )
+    return str(httpx.URL(url)).rstrip("/")
+
+
+def ollama_client(url, credential_env=None):
+    credential = os.environ.get(credential_env) if credential_env else None
+    return httpx.AsyncClient(
+        base_url=url,
+        headers={"Authorization": f"Bearer {credential}"} if credential else {},
+        trust_env=False,
+        follow_redirects=False,
+        timeout=httpx.Timeout(90, connect=5),
+    )
 
 
 @dataclass(frozen=True)
@@ -43,7 +71,7 @@ class OllamaProfile:
 class Ollama:
     def __init__(self, profile=None):
         self.profile = profile or OllamaProfile.from_legacy_environment()
-        self.url = self.profile.url.rstrip("/")
+        self.url = validated_ollama_url(self.profile.url)
         self.identity = {
             "model": self.profile.model,
             "model_revision": self.profile.digest,
@@ -62,19 +90,7 @@ class Ollama:
         self._may_be_resident = False
 
     async def start(self):
-        credential = (
-            os.environ.get(self.profile.credential_env)
-            if self.profile.credential_env
-            else None
-        )
-        headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-        self.client = httpx.AsyncClient(
-            base_url=self.url,
-            headers=headers,
-            trust_env=False,
-            follow_redirects=False,
-            timeout=httpx.Timeout(90, connect=5),
-        )
+        self.client = ollama_client(self.url, self.profile.credential_env)
 
     async def close(self):
         if self.client is None:
@@ -117,12 +133,22 @@ class Ollama:
             tags = await client.get("/api/tags", timeout=3)
             version.raise_for_status()
             tags.raise_for_status()
-            return version.json()["version"] == self.profile.engine_revision and any(
-                item["name"] == self.profile.tag
-                and item["digest"] == self.profile.digest
+            digests = [
+                item["digest"]
                 for item in tags.json()["models"]
-            )
-        except (httpx.HTTPError, RuntimeError, ValueError, KeyError, TypeError):
+                if item["name"] == self.profile.tag
+            ]
+            return version.json()[
+                "version"
+            ] == self.profile.engine_revision and digests == [self.profile.digest]
+        except (
+            httpx.HTTPError,
+            RuntimeError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+        ):
             return False
 
     async def require_ready(self):
@@ -141,7 +167,9 @@ class Ollama:
         await self.require_ready()
         self._may_be_resident = True
         try:
-            response = await self.client.post("/api/chat", json=payload)
+            response = await self.client.post(
+                "/api/chat", json=payload, headers=provider_headers()
+            )
             response.raise_for_status()
             packet = response.json()
         except httpx.TimeoutException as exc:
@@ -173,7 +201,7 @@ class Ollama:
         self._may_be_resident = True
         try:
             async with self.client.stream(
-                "POST", "/api/chat", json=payload
+                "POST", "/api/chat", json=payload, headers=provider_headers()
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

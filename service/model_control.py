@@ -185,8 +185,7 @@ class ModelControl:
         except KeyError as exc:
             raise Problem(404, "unknown_model", "Select an installed model.") from exc
 
-    def set_enabled(self, model_id, enabled):
-        entry = self._entry(model_id)
+    def _require_mutable(self):
         if self._stopping or self._lock_file is None:
             raise Problem(
                 503,
@@ -194,6 +193,25 @@ class ModelControl:
                 "Model control is not accepting changes.",
                 retryable=True,
             )
+
+    def register_disabled(self, adapter, persist):
+        self._require_mutable()
+        identity = adapter.identity.copy()
+        model_id = identity["model"]
+        if model_id in self.entries:
+            raise Problem(
+                409, "model_already_registered", "The model ID already exists."
+            )
+        persist()
+        entry = self.entries[model_id] = Entry(adapter, identity, enabled=False)
+        return entry.describe()
+
+    def describe(self, model_id):
+        return self._entry(model_id).describe()
+
+    def set_enabled(self, model_id, enabled):
+        entry = self._entry(model_id)
+        self._require_mutable()
         if entry.enabled != enabled:
             previous = entry.enabled
             entry.enabled = enabled

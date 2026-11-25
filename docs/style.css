@@ -192,3 +192,15 @@ code { font: .9em var(--mono); padding-inline: .2em; background: var(--nested); 
 .health-fill { display: block; height: 100%; transition: width .2s ease-out, background-color .2s ease-out; }
 .empty-table { padding: .625rem; color: var(--muted); font-size: .82rem; }
 @media (prefers-reduced-motion: reduce) { .health-fill { transition: none; } }
+
+.protocol-steps { padding: .625rem .75rem .75rem 2rem !important; }
+.protocol-steps li { padding: .375rem .5rem; }
+.protocol-steps li + li { border-top: 1px solid var(--line); }
+.protocol-steps li p { margin: .125rem 0 0 !important; }
+.protocol-steps li a { font-size: .78rem; }
+
+.catalog { margin-top: .75rem; }
+.catalog-tools { display: flex; align-items: end; gap: .5rem; }
+.catalog-tools label { flex: 1; }
+.catalog .small-status { margin-block: .625rem; overflow-wrap: anywhere; }
+.catalog-action { justify-self: end; }

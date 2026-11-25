@@ -1,0 +1,127 @@
+
+export interface UploadPart {
+  content: Blob
+  filename: string
+}
+
+@SCHEMAS@
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly requestId: string | null
+
+  constructor(readonly response: Response, readonly body: unknown, readonly problem: Problem | null) {
+    super(problem?.detail ?? `HTTP ${response.status}`)
+    this.name = "ApiError"
+    this.status = response.status
+    this.requestId = problem?.request_id ?? response.headers.get("X-Request-ID")
+  }
+}
+
+function parseProblem(value: unknown): Problem | null {
+  if (typeof value !== "object" || value === null) return null
+  const record = value as Record<string, unknown>
+  if (typeof record.status !== "number" || typeof record.retryable !== "boolean") return null
+  const fields = ["type", "title", "detail", "code", "request_id"]
+  if (!fields.every(key => typeof record[key] === "string")) return null
+  return value as Problem
+}
+
+type Parameter = readonly [string, string, "path" | "query" | "header"]
+type Operation = readonly [
+  string, string, boolean, readonly Parameter[], readonly string[], string, "body" | "accept" | null,
+]
+type CallValues = Record<string, unknown>
+
+const OPERATIONS: Record<string, Operation> = @OPERATIONS@
+
+export interface ClientOptions {
+  token?: string | (() => string | Promise<string>)
+  fetch?: typeof globalThis.fetch
+}
+
+function pathValue(value: string): string {
+  if (["", ".", ".."].includes(value)) throw new Error("A path parameter must contain a resource identifier.")
+  return encodeURIComponent(value).replace(/[!'()*]/g, character =>
+    "%" + character.charCodeAt(0).toString(16).toUpperCase(),
+  )
+}
+
+export class @CLIENT@ {
+  private readonly baseUrl: string
+  private readonly fetcher: typeof globalThis.fetch
+  private readonly token: ClientOptions["token"]
+
+  constructor(baseUrl: string, options: ClientOptions = {}) {
+    const parsed = new URL(baseUrl)
+    if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error("Use an HTTP(S) base URL without credentials, a query, or a fragment.")
+    }
+    this.baseUrl = parsed.href.replace(/\/+$/, "")
+    this.fetcher = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+    this.token = options.token
+  }
+
+  private async request(operation: string, values: CallValues, streaming = false): Promise<Response> {
+    const [method, template, auth, parameters, media, accept, streamSelector] = OPERATIONS[operation]
+    const headers = new Headers({Accept: streaming ? "text/event-stream" : accept})
+    const query = new URLSearchParams()
+    let path = template
+    for (const [key, name, location] of parameters) {
+      const value = values[key]
+      if (value === undefined || value === null) continue
+      if (location === "path") path = path.replace("{" + name + "}", pathValue(String(value)))
+      else if (location === "header") headers.set(name, String(value))
+      else query.append(name, String(value))
+    }
+    if (/\{[^{}]+\}/.test(path)) throw new Error("A required path parameter is missing.")
+    if (auth) {
+      const token = typeof this.token === "function" ? await this.token() : this.token
+      if (token !== undefined) headers.set("Authorization", `Bearer ${token}`)
+    }
+    let body: BodyInit | undefined
+    if (values.body !== undefined && media[0] === "application/json") {
+      let data = values.body as Record<string, unknown>
+      if (streamSelector === "body") {
+        if (streaming) data = {...data, stream: true}
+        else if (data.stream) throw new Error("Use the streaming method for a streaming request.")
+      }
+      body = JSON.stringify(data)
+      headers.set("Content-Type", media[0])
+    } else if (values.body !== undefined && media[0] === "multipart/form-data") {
+      const form = new FormData()
+      for (const [name, value] of Object.entries(values.body as Record<string, unknown>)) {
+        if (typeof value === "object" && value !== null && "content" in value && "filename" in value) {
+          const part = value as UploadPart
+          form.append(name, part.content, part.filename)
+        } else if (value !== undefined && value !== null) {
+          form.append(name, String(value))
+        }
+      }
+      body = form
+    } else if (values.body !== undefined) {
+      const contentType = String(values.contentType)
+      if (!media.includes(contentType)) throw new Error(`Unsupported request Content-Type. Choose from ${media.join(", ")}.`)
+      headers.set("Content-Type", contentType)
+      body = values.body as BodyInit
+    }
+    const url = new URL(this.baseUrl + path)
+    url.search = query.toString()
+    const response = await this.fetcher(url, {
+      method, headers, body, signal: values.signal as AbortSignal | undefined,
+      redirect: "error", credentials: "omit",
+    })
+    if (!response.ok) {
+      let payload: unknown = await response.text()
+      try {
+        payload = JSON.parse(payload as string)
+      } catch {
+        // Retain any non-JSON response for diagnosis.
+      }
+      throw new ApiError(response, payload, parseProblem(payload))
+    }
+    return response
+  }
+
+@METHODS@
+}

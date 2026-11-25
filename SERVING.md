@@ -56,6 +56,16 @@ The `agent:manage` scope grants access to `GET /v1/control/models` and `PUT /v1/
 
 The service layer resolves the public model ID and holds the lifecycle lease. The provider adapter opens a transport and verifies its upstream catalog identity. The Ollama interpreter serializes the complete message history and decodes terminal packets. A new engine supplies its own adapter and interpreter and registers its factory in `service/provider_registry.py`. The adapter declares its identity, capabilities, runner ownership and initial availability. It receives the common messages, token budget, and optional workflow schema.
 
+### Register models already installed in Ollama
+
+Use an `agent:manage` token to call `GET /v1/control/ollama/catalog`. The response reports the configured provider URL and version, each installed tag's exact digest and size, and the existing VoxRN model ID when already registered. VoxRN selects the single configured Ollama backend by default. For installations with several backends, set `VOXRN_AGENT_OLLAMA_CATALOG_MODEL` to a configured model ID.
+
+To connect to a separately operated backend, set the trusted deployment environment variable `VOXRN_AGENT_OLLAMA_CATALOG_URL` and optionally `VOXRN_AGENT_OLLAMA_CATALOG_TOKEN`. This mode can start without a preconfigured model. Provider addresses and credentials are configured by the operator before launching the service.
+
+Submit a catalog entry's `tag` and `digest` to `POST /v1/control/ollama/registrations`. A new registration returns a disabled chat profile. Use `PUT /v1/control/models/{model_id}` to enable the returned alias, then select it for buffered chat, SSE chat, or MCP `agent_infer`. Registration rejects a changed digest and models whose Ollama metadata explicitly lacks text completion. It reads metadata without downloading or loading a model. The provider version and digest are verified before inference and returned in the provenance headers. [Ollama model information API](https://github.com/ollama/ollama/blob/main/docs/api.md#show-model-information)
+
+Registrations persist in the Agent data directory and stay bound to the configured backend. A provider upgrade or tag change requires a new registration for the new identity. Ollama continues to manage its own weights and runner residency. Imported profiles serve stateless chat. Durable workflows keep their sealed bundle identity and require a separately configured profile with structured outputs.
+
 To use the standalone request-recording example, generate its pinned manifest and point the service at its directory.
 
 ```sh

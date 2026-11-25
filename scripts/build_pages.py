@@ -307,7 +307,7 @@ MCP_REQUEST"""
     asset_rev = hashlib.sha256(
         b"".join(
             (PAGES / name).read_bytes()
-            for name in ("style.css", "console.js", "runtime.js")
+            for name in ("style.css", "console.js", "runtime.js", "ollama.js")
         )
     ).hexdigest()[:12]
     html = f"""<!doctype html>
@@ -339,6 +339,7 @@ MCP_REQUEST"""
   <link rel="stylesheet" href="style.css?v={asset_rev}">
   <script src="console.js?v={asset_rev}" defer></script>
   <script src="runtime.js?v={asset_rev}" defer></script>
+  <script src="ollama.js?v={asset_rev}" defer></script>
   <link rel="describedby" href="llms.txt">
   <link rel="alternate" type="text/markdown" href="index.md">
   <link rel="service-desc" type="application/json" href="contracts/openapi.json">
@@ -421,6 +422,17 @@ MCP_REQUEST"""
         <div class="panel-body models-body">
           <p id="models-status" class="small-status" role="status">Connect to a runtime to view its models.</p>
           <div id="models-list" class="model-stack"></div>
+          <details class="nested catalog" id="ollama-catalog">
+            <summary><strong>Ollama catalog</strong><span id="ollama-count"></span></summary>
+            <div class="disclosure-body">
+              <div class="catalog-tools">
+                <label>Filter catalog <input id="ollama-filter" type="search" placeholder="Find an installed tag"></label>
+                <button id="ollama-refresh" type="button">Refresh catalog</button>
+              </div>
+              <p class="small-status" id="ollama-status" role="status"></p>
+              <div id="ollama-models" class="model-stack"></div>
+            </div>
+          </details>
         </div>
       </section>
       <section class="panel request" id="console" aria-labelledby="request-title">
@@ -475,6 +487,14 @@ MCP_REQUEST"""
     </section>
     <section id="api">
       <h2>HTTP and streaming</h2>
+      <details class="nested protocol">
+        <summary><strong>Protocol lifecycle</strong></summary>
+        <ol class="protocol-steps">
+          <li><strong>Create a run</strong><p>Pin an eligible workflow bundle and its exact model revision.</p><a href="#console" data-operation="POST /v1/runs">Inspect request</a></li>
+          <li><strong>Submit the turn</strong><p>Provide the current revision and an idempotency key. Preserve the original participant input.</p><a href="#console" data-operation="POST /v1/runs/{{run_id}}/turns">Inspect request</a></li>
+          <li><strong>Follow and resume</strong><p>Read committed events. Reconnect with Last-Event-ID and reconcile the durable run state.</p></li>
+        </ol>
+      </details>
       <dl>{operation_rows}</dl>
     </section>
     <section id="contracts">
@@ -484,6 +504,9 @@ MCP_REQUEST"""
         <li><a href="llms.txt">llms.txt</a> <span>Agent entry point.</span></li>
         <li><a href="index.md">Markdown guide</a> <span>Text version of this page.</span></li>
         <li><a href="discovery.json">Service discovery metadata</a> <span>Machine-readable link map.</span></li>
+        <li><a href="https://github.com/robit-man/voxrn-agent/blob/main/QUALITY_SPEC.md">Operational quality specification</a></li>
+        <li><a href="https://github.com/robit-man/voxrn-agent/blob/main/BENCHMARKS.md">Buffered inference benchmark</a></li>
+        <li><a href="https://github.com/robit-man/voxrn-agent/blob/main/CLIENTS.md">Generated clients</a></li>
       </ul>
     </section>
     <section>

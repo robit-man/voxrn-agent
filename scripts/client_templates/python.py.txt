@@ -1,0 +1,164 @@
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import @CONTEXTLIB@
+from dataclasses import dataclass
+from typing import Any, BinaryIO, Literal, NotRequired, TypedDict
+from urllib.parse import quote, urlsplit
+
+import httpx
+
+
+@dataclass(frozen=True)
+class UploadPart:
+    """A multipart file with its original filename and declared media type."""
+
+    content: bytes | BinaryIO
+    filename: str
+    content_type: str
+
+
+@SCHEMAS@
+
+
+class ApiError(RuntimeError):
+    """An HTTP failure, including RFC 9457 information when the server supplies it."""
+
+    def __init__(self, response: httpx.Response):
+        self.response = response
+        self.status = response.status_code
+        try:
+            self.body = response.json()
+        except ValueError:
+            self.body = response.text
+        self.problem: Problem | None = None
+        self.request_id = response.headers.get("X-Request-ID")
+        if isinstance(self.body, dict) and all(
+            isinstance(self.body.get(key), kind)
+            for key, kind in (
+                ("type", str), ("title", str), ("status", int), ("detail", str),
+                ("code", str), ("request_id", str), ("retryable", bool),
+            )
+        ):
+            self.problem = self.body
+            self.request_id = self.problem["request_id"]
+        message = self.problem["detail"] if self.problem else f"HTTP {self.status}"
+        super().__init__(message)
+
+
+def _path_value(value: str) -> str:
+    if value in ("", ".", ".."):
+        raise ValueError("A path parameter must contain a resource identifier.")
+    return quote(value, safe="")
+
+
+def _scalar(value: Any) -> str:
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
+_OPERATIONS = @OPERATIONS@
+
+
+class @CLIENT@:
+    """Synchronous client for the canonical VoxRN HTTP contract."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        token: str | Callable[[], str] | None = None,
+        timeout: httpx.Timeout | float | None = 120.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
+        parsed = urlsplit(base_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Use an HTTP(S) base URL without credentials, a query, or a fragment.")
+        self._base_url = base_url.rstrip("/")
+        self._token = token
+        self._client = httpx.Client(
+            timeout=timeout, transport=transport, follow_redirects=False
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> @CLIENT@:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.close()
+
+    def _request_args(
+        self, operation: str, values: Mapping[str, Any], *, streaming: bool = False
+    ) -> tuple[str, str, dict[str, Any]]:
+        method, path, auth, parameters, media, accept, stream_selector = _OPERATIONS[operation]
+        headers = {"Accept": "text/event-stream" if streaming else accept}
+        query = {}
+        for key, name, location in parameters:
+            value = values.get(key)
+            if value is None:
+                continue
+            if location == "path":
+                path = path.replace("{" + name + "}", _path_value(value))
+            elif location == "header":
+                headers[name] = _scalar(value)
+            else:
+                query[name] = _scalar(value)
+        if re.search(r"\{[^{}]+\}", path):
+            raise ValueError("A required path parameter is missing.")
+        if auth:
+            token = self._token() if callable(self._token) else self._token
+            if token is not None:
+                headers["Authorization"] = f"Bearer {token}"
+
+        kwargs: dict[str, Any] = {"headers": headers, "params": query}
+        body = values.get("body")
+        if body is not None and media == ("application/json",):
+            if stream_selector == "body":
+                if streaming:
+                    body = {**body, "stream": True}
+                elif body.get("stream", False):
+                    raise ValueError("Use the streaming method for a streaming request.")
+            kwargs["json"] = body
+        elif body is not None and media == ("multipart/form-data",):
+            data = {}
+            files = {}
+            for name, value in body.items():
+                if isinstance(value, UploadPart):
+                    files[name] = (value.filename, value.content, value.content_type)
+                elif value is not None:
+                    data[name] = _scalar(value)
+            kwargs.update(data=data, files=files)
+        elif body is not None:
+            content_type = values.get("content_type")
+            if content_type not in media:
+                raise ValueError(f"Unsupported request Content-Type. Choose from {media}.")
+            headers["Content-Type"] = content_type
+            kwargs["content"] = body
+        return method, self._base_url + path, kwargs
+
+    def _request(self, operation: str, values: Mapping[str, Any]) -> httpx.Response:
+        method, url, kwargs = self._request_args(operation, values)
+        response = self._client.request(method, url, **kwargs)
+        if not response.is_success:
+            raise ApiError(response)
+        return response
+
+    @contextmanager
+    def _stream(self, operation: str, values: Mapping[str, Any]) -> Iterator[httpx.Response]:
+        method, url, kwargs = self._request_args(operation, values, streaming=True)
+        with self._client.stream(method, url, **kwargs) as response:
+            if not response.is_success:
+                response.read()
+                raise ApiError(response)
+            yield response
+
+@METHODS@

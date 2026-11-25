@@ -459,6 +459,10 @@ function updateModelRow(item, row) {
       ...(plan.vram_mib ? [["GPU memory budget", displayBytes(plan.vram_mib * 1024 ** 2)]] : [])] : []),
     ["Active requests", row.active_requests],
     ...(health ? [
+      ...(health.placement ? [
+        ["Placement disk", health.placement.source + " mounted at " + health.placement.mount],
+        ["Placement space", displayBytes(health.placement.free_bytes) + " free of " + displayBytes(health.placement.total_bytes)],
+      ] : []),
       ["Score inputs", health.detail.join(" · ")],
       ["Observed model memory", typeof health.rss_bytes === "number" ? displayBytes(health.rss_bytes) : "Awaiting measurement"],
       ...(runtimeIdentity !== "voxrn-agent" ? [["Audio real-time factor", typeof health.audio_rtf === "number" ? numberFormat.format(health.audio_rtf) + "×" : "Awaiting a completed audio request"]] : []),
@@ -567,6 +571,14 @@ async function loadConsole() {
     selectRequestModel();
   }
   operation.addEventListener("change", render);
+  document.querySelectorAll("[data-operation]").forEach(link => {
+    link.addEventListener("click", () => {
+      if (configs.has(link.dataset.operation)) {
+        operation.value = link.dataset.operation;
+        render();
+      }
+    });
+  });
   field("stop").addEventListener("click", () => request?.abort());
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

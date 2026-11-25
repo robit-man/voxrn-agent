@@ -3,9 +3,7 @@
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
-
-from .provider import Ollama, OllamaProfile
+from .provider import Ollama, OllamaProfile, validated_ollama_url
 from .wire import strict_json
 
 
@@ -32,17 +30,6 @@ def ollama_profile(record):
         raise ValueError("The public model ID is invalid.")
     if not re.fullmatch(r"[a-f0-9]{64}", record["digest"]):
         raise ValueError("The model digest must be a lowercase SHA-256.")
-    parts = urlsplit(record["url"])
-    if (
-        parts.scheme not in {"http", "https"}
-        or not parts.hostname
-        or parts.username is not None
-        or parts.query
-        or parts.fragment
-    ):
-        raise ValueError(
-            "The provider URL must be HTTP(S) without embedded credentials."
-        )
     context = record.get("context_tokens", 8192)
     if type(context) is not int or context < 1024:
         raise ValueError("The context token limit must be an integer of at least 1024.")
@@ -60,7 +47,7 @@ def ollama_profile(record):
         tag=record["tag"],
         digest=record["digest"],
         engine_revision=record["engine_revision"],
-        url=record["url"],
+        url=validated_ollama_url(record["url"]),
         context_tokens=context,
         thinking=record.get("think"),
         credential_env=credential_env,
@@ -76,6 +63,16 @@ PROVIDERS = {"ollama": lambda record: Ollama(ollama_profile(record))}
 def load_providers():
     filename = os.environ.get("VOXRN_AGENT_MODELS_FILE")
     if not filename:
+        has_legacy_pin = any(
+            os.environ.get(name)
+            for name in (
+                "VOXRN_AGENT_MODEL_TAG",
+                "VOXRN_AGENT_MODEL_DIGEST",
+                "VOXRN_AGENT_ENGINE_REVISION",
+            )
+        )
+        if os.environ.get("VOXRN_AGENT_OLLAMA_CATALOG_URL") and not has_legacy_pin:
+            return {}
         provider = Ollama()
         return {"qwen-local": provider}
     config = strict_json(Path(filename).read_bytes())

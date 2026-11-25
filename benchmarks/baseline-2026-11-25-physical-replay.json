@@ -1,0 +1,322 @@
+{
+  "started_utc": "2026-11-25T06:39:30.556620+00:00",
+  "service": "agent",
+  "path": "/v1/chat/completions",
+  "identity": {
+    "model": "qwen-local",
+    "model_revision": "7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435",
+    "engine": "ollama",
+    "engine_revision": "0.40.18"
+  },
+  "hardware": {
+    "cpu": "AMD Ryzen Threadripper 7960X 24-Cores",
+    "logical_cpus": 48,
+    "architecture": "x86_64",
+    "kernel": "6.11.0-29-generic",
+    "system": "Linux"
+  },
+  "fixture_sha256": "6ab6eebea81bd9ff8774723f6abc0413a6056220003c64eb443694ee3dde9dbc",
+  "fixture_bytes": 45,
+  "first_after_activation": {
+    "status": 200,
+    "code": null,
+    "request_id": "b68e6ae9b38d45ea99e6be2676f34340",
+    "fixture_check": true,
+    "bytes": 210,
+    "finish_reason": "stop",
+    "fixture_response": "2 + 3 = 5",
+    "ms": 1373.76
+  },
+  "steps": [
+    {
+      "concurrency": 1,
+      "attempted": 4,
+      "fixture_successes": 0,
+      "admission_429": 0,
+      "successful_per_second": 0.0,
+      "successful_latency_ms": null,
+      "responses": [
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "aec1a9e02a5544319174fe05c105d0b3",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 36.03
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "0883200835d644a6adf6927858ca4cca",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 34.18
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "776f3ef9e3814beaa54c84d3d6993301",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 34.76
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "7cad003835d5446c9db9f0491e349cf6",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 38.99
+        }
+      ]
+    },
+    {
+      "concurrency": 2,
+      "attempted": 8,
+      "fixture_successes": 4,
+      "admission_429": 0,
+      "successful_per_second": 7.282,
+      "successful_latency_ms": {
+        "p50": 105.77,
+        "p95": 203.99,
+        "max": 203.99
+      },
+      "responses": [
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "0deec1614ff34fd2aec5b718ddcc38dc",
+          "fixture_check": true,
+          "bytes": 210,
+          "finish_reason": "stop",
+          "fixture_response": "2 + 3 = 5",
+          "ms": 84.48
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "d3b28883f7b4408e86e274662e44d38f",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 98.88
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "9ea8857b83634dc7a4134ecff7495d6e",
+          "fixture_check": true,
+          "bytes": 280,
+          "finish_reason": "stop",
+          "fixture_response": "1\n\n**Explanation:**  \nTwo plus three equals five, so the answer is **five**.",
+          "ms": 203.99
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "998119f3da88401ba8e06abe6f584d2d",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 220.77
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "2fdc7e62738f4a82aadec2925012f2a2",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "3",
+          "ms": 55.16
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "19a2236db63b483184b03adde1962258",
+          "fixture_check": true,
+          "bytes": 210,
+          "finish_reason": "stop",
+          "fixture_response": "2 + 3 = 5",
+          "ms": 115.38
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "b62bddfdda364547b64c79b44b4290c8",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "3",
+          "ms": 109.93
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "6c6bfb519fe947efa7b4323685ef1c05",
+          "fixture_check": true,
+          "bytes": 210,
+          "finish_reason": "stop",
+          "fixture_response": "2 + 3 = 5",
+          "ms": 96.15
+        }
+      ]
+    },
+    {
+      "concurrency": 4,
+      "attempted": 16,
+      "fixture_successes": 0,
+      "admission_429": 8,
+      "successful_per_second": 0.0,
+      "successful_latency_ms": null,
+      "responses": [
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "b00f27dff1db434d8ee558470f8c4ce1",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 97.29
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "72ea951a6b4f4937b0f41979201e704b",
+          "fixture_check": false,
+          "ms": 72.75
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "1aa440c24e504a66ad8731488da48fe9",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "1",
+          "ms": 109.52
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "1de5f2bafb504c9db1db0cd1617d7d09",
+          "fixture_check": false,
+          "ms": 74.48
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "181ed825fe5e41a29a7b10cc958ecca3",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 92.36
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "51f45f25ce5047a295ee379368fe0336",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 105.49
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "368bc9769df741809a77498e189184d6",
+          "fixture_check": false,
+          "ms": 76.8
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "2ad2599aef6642c4b4f2ab4fee996cc0",
+          "fixture_check": false,
+          "ms": 77.37
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "20ed4ba88bb14dd7ab3928b282cbbdad",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 88.25
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "9777dbac77b5408e8509d61e083b367e",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 100.9
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "61bb35b9c32e4b92be4e2807e6ccee95",
+          "fixture_check": false,
+          "ms": 62.23
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "9942907f6b154e988cb45fd4e2e1b579",
+          "fixture_check": false,
+          "ms": 63.73
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "1eb086460ef343409cd95a70075e2776",
+          "fixture_check": false,
+          "ms": 49.03
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "8dd6fca4b1704d3dacd8436521cb8709",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 74.56
+        },
+        {
+          "status": 429,
+          "code": "capacity_exhausted",
+          "request_id": "fe7ef0ddb68c473c81f48971bedea627",
+          "fixture_check": false,
+          "ms": 48.51
+        },
+        {
+          "status": 200,
+          "code": null,
+          "request_id": "e098f3142d914a6c977994959afdbed6",
+          "fixture_check": false,
+          "bytes": 202,
+          "finish_reason": "stop",
+          "fixture_response": "2",
+          "ms": 87.56
+        }
+      ]
+    }
+  ]
+}

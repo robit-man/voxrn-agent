@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from starlette.datastructures import Headers
@@ -11,6 +12,17 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 KEY = re.compile(r"[A-Za-z0-9_-]{43}")
 SUBJECT = re.compile(r"[a-f0-9]{32}")
+
+
+def session_scope(session):
+    level = session.get("scope", "admin")
+    expires = session.get("expires_at")
+    if level not in {"admin", "inference"} or (
+        expires is not None
+        and (type(expires) not in {int, float} or not time.time() < expires)
+    ):
+        return None
+    return level
 
 
 class TunnelAccess:
@@ -60,7 +72,8 @@ class TunnelAccess:
             and KEY.fullmatch(supplied)
             and hmac.compare_digest(supplied, key)
         ):
-            return subject
+            level = session_scope(session)
+            return (subject, level) if level else None
         return None
 
 
@@ -101,8 +114,8 @@ class TunnelMiddleware:
         ):
             await self.app(scope, receive, send)
             return
-        subject = self.access.subject(scope, headers)
-        if subject is None:
+        principal = self.access.subject(scope, headers)
+        if principal is None:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1008})
             else:
@@ -129,5 +142,10 @@ class TunnelMiddleware:
         ] + [(b"host", f"127.0.0.1:{server[1]}".encode("ascii"))]
         if headers.get("origin") and self.access.origin:
             forwarded["headers"].append((b"origin", self.access.origin.encode("ascii")))
-        forwarded["state"] = {**scope.get("state", {}), "tunnel_subject": subject}
+        subject, level = principal
+        forwarded["state"] = {
+            **scope.get("state", {}),
+            "tunnel_subject": subject,
+            "tunnel_scope": level,
+        }
         await self.app(forwarded, receive, send)

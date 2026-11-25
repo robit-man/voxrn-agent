@@ -63,7 +63,17 @@ def status(settings):
     path = connector_path(settings)
     if not path.is_file():
         return {"state": "connecting"}
-    return {"state": "connected", **load_settings(path)}
+    session = (
+        load_settings(session_path(settings))
+        if session_path(settings).is_file()
+        else {}
+    )
+    return {
+        "state": "connected",
+        **load_settings(path),
+        "scope": session.get("scope", "admin"),
+        "expires_at": session.get("expires_at"),
+    }
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -100,7 +110,7 @@ def current(settings, *, reachable=False):
     )
 
 
-def start(settings, public_endpoint=None, token_file=None):
+def start(settings, public_endpoint=None, token_file=None, *, scope="admin", ttl=None):
     if not cloudflared_binary(settings):
         raise RuntimeError(
             "Run setup.sh --with-tunnel or install cloudflared on the service PATH."
@@ -135,7 +145,13 @@ def start(settings, public_endpoint=None, token_file=None):
     write_settings(options_path(settings), options)
     write_settings(
         session_path(settings),
-        {"key": secrets.token_urlsafe(32), "subject": uuid.uuid4().hex},
+        {
+            "key": secrets.token_urlsafe(32),
+            "subject": uuid.uuid4().hex,
+            "scope": scope,
+            "ttl": ttl,
+            "expires_at": time.time() + ttl if ttl else None,
+        },
     )
     try:
         change_unit("start")
@@ -153,9 +169,12 @@ def stop(settings):
     (settings.parent / "tunnel-token").unlink(missing_ok=True)
 
 
-def rotate(settings):
+def rotate(settings, *, scope=None, ttl=None):
     response, session = current(settings)
     session["key"] = secrets.token_urlsafe(32)
+    session["scope"] = scope or session.get("scope", "admin")
+    session["ttl"] = ttl if ttl is not None else session.get("ttl")
+    session["expires_at"] = time.time() + session["ttl"] if session["ttl"] else None
     write_settings(session_path(settings), session)
     return response, session
 
@@ -184,11 +203,29 @@ def action(settings, op, args):
             stop(settings)
             return "Session closed."
         if op == "open":
-            response, session = start(settings, args.named_url, args.token_file)
+            response, session = start(
+                settings,
+                args.named_url,
+                args.token_file,
+                scope=getattr(args, "scope", None) or "admin",
+                ttl=getattr(args, "ttl", None),
+            )
         elif op == "rotate":
-            response, session = rotate(settings)
+            response, session = rotate(
+                settings,
+                scope=getattr(args, "scope", None),
+                ttl=getattr(args, "ttl", None),
+            )
         else:
             response, session = current(settings)
+        if (
+            op in {"link", "key"}
+            and session.get("expires_at") is not None
+            and session["expires_at"] <= time.time()
+        ):
+            raise RuntimeError(
+                "This session key has expired. Rotate it to issue a new key."
+            )
         if op == "key":
             return session["key"]
         if op == "endpoint":
@@ -268,6 +305,13 @@ def tui(settings):
             )
 
 
+def lifetime(value):
+    seconds = int(value)
+    if not 30 <= seconds <= 86400:
+        raise argparse.ArgumentTypeError("Choose a lifetime of 30–86400 seconds.")
+    return seconds
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prefix", type=Path, default=BASE)
@@ -282,6 +326,11 @@ def main():
             )
             command.add_argument(
                 "--query", action="store_true", help="Place the key in the URL query."
+            )
+        if op in {"open", "rotate"}:
+            command.add_argument("--scope", choices=["admin", "inference"])
+            command.add_argument(
+                "--ttl", type=lifetime, help="Session key lifetime in seconds."
             )
         if op == "open":
             command.add_argument("--named-url")

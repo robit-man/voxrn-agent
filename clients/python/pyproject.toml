@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxrn-agent-sdk"
+version = "1.0.0"
+description = "Generated HTTP client for VoxRN Agent"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.28,<1"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
