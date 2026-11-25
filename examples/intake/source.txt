@@ -1,0 +1,1 @@
+Collect the caller's requested day of the week. Ask for the missing day when it is not clear. With a single explicitly stated day, record the request in the local request log and tell the caller that it was recorded. The log records a request only. A separate scheduling action would require independent authority and verification.

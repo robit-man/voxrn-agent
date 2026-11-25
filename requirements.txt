@@ -1,0 +1,7 @@
+fastapi==0.135.3
+uvicorn==0.40.0
+mcp==2.3.0
+httpx==0.28.1
+jsonschema==4.26.0
+websockets==15.0.1
+rfc8785==0.1.4
