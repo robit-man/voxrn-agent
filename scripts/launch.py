@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from host import ROOT, load_settings, local_env, ollama_env
+from install_records import own_process
 
 
 def main():
@@ -12,7 +13,11 @@ def main():
     parser.add_argument("settings", type=Path)
     parser.add_argument("--ollama", action="store_true")
     args = parser.parse_args()
+    args.settings = args.settings.expanduser().resolve()
     config = load_settings(args.settings)
+    own_process(
+        args.settings, "ollama" if args.ollama else "api", config.get("install_id")
+    )
     os.chdir(ROOT)
     if args.ollama:
         binary = config["ollama_binary"]

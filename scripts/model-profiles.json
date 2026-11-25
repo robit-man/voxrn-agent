@@ -1,0 +1,40 @@
+{
+  "profiles": [
+    {
+      "id": "qwen-local",
+      "ollama": {
+        "tag": "qwen3:0.6b",
+        "digest": "7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435",
+        "engine_revision": "0.40.18",
+        "think": false
+      }
+    },
+    {
+      "id": "qwen3.5-4b",
+      "ollama": {
+        "tag": "qwen3.5:4b",
+        "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+        "engine_revision": "0.40.18",
+        "think": false
+      }
+    },
+    {
+      "id": "qwen3.6-27b",
+      "ollama": {
+        "tag": "qwen3.6:27b",
+        "digest": "bcbdbd4bcf86f2c4a56cd1698fb31f9434f7dd99752f71b636c750aaa67a49a5",
+        "engine_revision": "0.40.18",
+        "think": false
+      }
+    },
+    {
+      "id": "gemma4-26b",
+      "ollama": {
+        "tag": "gemma4:26b",
+        "digest": "001e5dafc3c77684c2307ebc6ab8e336e10c9b18eca52acf547d72fc83c3ca8c",
+        "engine_revision": "0.40.18",
+        "think": false
+      }
+    }
+  ]
+}

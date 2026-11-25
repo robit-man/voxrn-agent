@@ -58,6 +58,13 @@
       <audio id="api-audio" controls hidden></audio>
       <a id="api-download" download="voxrn-audio.wav" hidden>Download WAV</a>
       <pre id="api-output" aria-label="Response" tabindex="0"></pre>
+      <details id="model-control">
+        <summary>Manage installed models</summary>
+        <p>Use the service management scope. Disabling stops admission and drains active requests.</p>
+        <button id="models-refresh" type="button">Load model state</button>
+        <p id="models-status" role="status"></p>
+        <ul id="models-list"></ul>
+      </details>
     </section>
     <section id="mcp">
       <h2>MCP</h2>
@@ -139,7 +146,9 @@ MCP_REQUEST</code></pre></details>
 <dt><code>POST /v1/runs/{run_id}/turns</code></dt><dd>Append one finalized participant turn</dd>
 <dt><code>POST /v1/runs/{run_id}/cancel</code></dt><dd>Accept cancellation of a nonterminal run</dd>
 <dt><code>GET /v1/runs/{run_id}/events</code></dt><dd>Replay and follow durable run events</dd>
-<dt><code>POST /v1/chat/completions</code></dt><dd>Stateless text inference</dd></dl>
+<dt><code>POST /v1/chat/completions</code></dt><dd>Stateless text inference</dd>
+<dt><code>GET /v1/control/models</code></dt><dd>Inspect installed model profiles, lifecycle state, and in-flight request counts</dd>
+<dt><code>PUT /v1/control/models/{model_id}</code></dt><dd>Enable an installed model or stop admission and drain it</dd></dl>
     </section>
     <section id="contracts">
       <h2>Contracts and agent files</h2>

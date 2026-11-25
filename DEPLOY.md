@@ -16,6 +16,10 @@ The installer uses Ollama and Qwen3 0.6B on CPU. For accelerator deployments, pr
 The installer provisions a separate local Ollama process and pins `qwen3:0.6b` by digest. It reuses an installed Ollama binary when available and downloads a checksum-verified release otherwise. The native provider port defaults to 8314. Use `--ollama-port` to choose a different port. For an offline or interrupted installation, `--ollama-model-cache PATH` seeds only the pinned model and checks each blob before importing it. The Compose configuration pairs the installed workflow with the recorded engine version.
 
 
+## Model profiles
+
+See [model control](MODEL_CONTROL.md) for optional weights, runtime enablement and teardown. A native setup stores model assets and dependency environments under its installation prefix. Compose loads the provisioned Ollama model catalog.
+
 ## Containers
 
 Use Docker with the Compose plugin. Provision the private model and data directories before launching the containers. Choose a different port if the native service already uses the default.
@@ -43,4 +47,12 @@ Verified on 2026-11-24 Pacific time using Ubuntu 24.04.4 x86-64 CPU. The native 
 - The API and dedicated Ollama Compose containers passed readiness and answered the smoke prompt. The first attempt encountered exhausted Docker bridge address pools on the shared host. Releasing only the completed test stacks' networks allowed the same configuration to start.
 - The first native setup attempt stopped on an upstream 503 at model-manifest retrieval. A hash-verified cache seed recovered the identical model and startup. A subsequent clean provisioning run fetched the pinned model without a cache seed. Offline checks exercised bounded retry and corrupt-blob rejection. See [agent registry issue #1](https://github.com/robit-man/voxrn-agent/issues/1).
 
+The [expanded model validation](MODEL_VALIDATION.md) records the three new Ollama profiles, real chat and MCP requests, durable workflow runs and exact runner release.
+
 These checks cover standalone operation. Fresh Debian and arm64 installations, automatic accelerator provisioning, and the Voryn production cutover remain to be verified.
+
+## Model lifecycle verification
+
+On Ubuntu 24.04.4 x86-64, a dedicated native installation enabled `qwen3.5-4b`, served real inference, persisted disablement across a systemd restart, and returned to ready after re-enable. Chromium and the GTK dialog under Xvfb separately exercised disable and re-enable through the authenticated management API.
+
+A separately started Compose runtime served a real inference request `f948bddb57d84217812dbb4ad1fe0734`. The uninstall plan left the installation intact. Uninstall then removed its model and data directory, tray process, systemd units, labelled Compose containers and network, and private image tag. Its ports closed, a sibling file survived, and a repeated uninstall reported the installation absent.

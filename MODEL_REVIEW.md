@@ -15,7 +15,7 @@ Weights are grounded and structured reasoning evidence 35%, latency and capacity
 | 5 | Jun 2026 | Gemma 4 12B | 4 / 4 / 4 / 5 | **83** | Apache 2.0 mid-size checkpoint. Useful local independence check with native audio input available for an explicitly scoped experiment. Maintain the existing ASR boundary for the baseline. [Google release](https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12B/) |
 | 6 | Sep 2026 | DeepSeek-V4.1-Flash | 5 / 1 / 3 / 5 | **72** | MIT data-center reference with a strong author-reported reasoning profile. Its hundreds of billions of total parameters and specialized serving requirements explain the ranking for VoxRN's target footprint. [DeepSeek model card and evaluations](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) |
 
-Use Qwen3.5-4B for the first small-machine comparison, Qwen3.6-27B for a workstation qualification, and Gemma 4 26B as the independent comparator. Benchmark the DeepSeek checkpoint only in a hardware tier where its complete weights and cache fit. The installed Qwen3 0.6B CPU model serves as a smoke baseline. No ranked candidate was run in this review.
+Use Qwen3.5-4B for the first small-machine comparison, Qwen3.6-27B for a workstation qualification, and Gemma 4 26B as the independent comparator. Benchmark the DeepSeek checkpoint only in a hardware tier where its complete weights and cache fit. The installed Qwen3 0.6B CPU model serves as a smoke baseline. See the [standalone runtime evidence](MODEL_VALIDATION.md) for the three checkpoint profiles exercised after this review.
 
 ## Paired evaluation
 

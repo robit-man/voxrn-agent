@@ -10,10 +10,11 @@ from unittest.mock import patch
 import httpx
 import rfc8785
 
-from service.provider import Ollama
+from service.provider import Ollama, OllamaProfile
+from service.provider_registry import load_providers
 from service.server import create_app
-from service.wire import CONTRACTS, validate
-from service.workflows import BINDING_SET, digest
+from service.wire import CONTRACTS, Problem, validate
+from service.workflows import BINDING_SET, CLARIFICATION, DECISION, digest
 from support import connect, mcp, setup_env
 
 
@@ -27,6 +28,7 @@ class Stub:
 
     def __init__(self):
         self.started = threading.Event()
+        self.decision_schemas = []
 
     async def start(self):
         pass
@@ -40,6 +42,7 @@ class Stub:
     async def complete(self, messages, tokens, schema=None):
         if not schema:
             return "Finished", "stop"
+        self.decision_schemas.append(schema)
         if messages[-1]["content"] == "Wait until cancelled":
             self.started.set()
             await asyncio.sleep(20)
@@ -86,10 +89,10 @@ class AgentConformance(unittest.TestCase):
             )
         )
 
-    def start_run(self):
+    def start_run(self, key="start"):
         result = self.client.post(
             "/v1/runs",
-            headers={"Idempotency-Key": "start"},
+            headers={"Idempotency-Key": key},
             json={"workflow_id": "intake", "workflow_revision": "1.0.0"},
         )
         self.assertEqual(result.status_code, 201, result.text)
@@ -130,6 +133,7 @@ class AgentConformance(unittest.TestCase):
         result = self.final(run)
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["state"], {"day": "Friday"})
+        self.assertEqual(self.stub.decision_schemas, [DECISION])
         self.assertEqual(first.json(), self.submit(run, "Please record Friday.").json())
         self.assertEqual(self.submit(run, "Please record Saturday.").status_code, 409)
         events = self.events(run, cursor=2)
@@ -150,8 +154,10 @@ class AgentConformance(unittest.TestCase):
         )
         result = self.final(run)
         self.assertEqual((result["status"], result["state"]), ("failed", {}))
+        self.assertEqual(self.stub.decision_schemas, [CLARIFICATION])
         events = self.events(run, cursor=0)
         self.assertNotIn("action.receipt", [event["type"] for event in events])
+        self.assertEqual(events[-1]["problem"]["code"], "source_evidence_missing")
 
     def test_cancel_fences_a_running_turn(self):
         run = self.start_run()
@@ -170,6 +176,57 @@ class AgentConformance(unittest.TestCase):
             ["run.cancelling", "turn.failed", "run.cancelled"],
         )
 
+    def test_disabled_model_retains_queue_until_reenabled(self):
+        active = self.start_run("active")
+        queued = self.start_run("queued")
+        unsubmitted = self.start_run("unsubmitted")
+        self.assertEqual(self.submit(active, "Wait until cancelled").status_code, 202)
+        self.assertTrue(self.stub.started.wait(3))
+        prompt = "Please record Friday."
+        accepted = self.submit(queued, prompt)
+        self.assertEqual(accepted.status_code, 202)
+
+        control = "/v1/control/models/qwen-local"
+        disabled = self.client.put(control, json={"enabled": False})
+        self.assertEqual(disabled.status_code, 202, disabled.text)
+        self.assertEqual(disabled.json()["state"], "draining")
+        self.assertEqual(self.submit(queued, prompt).json(), accepted.json())
+        rejected = self.submit(unsubmitted, prompt)
+        self.assertEqual(rejected.status_code, 503, rejected.text)
+        self.assertEqual(rejected.json()["code"], "pinned_model_not_ready")
+
+        cancelled = self.client.post(
+            f"/v1/runs/{active}/cancel",
+            headers={"Idempotency-Key": "cancel"},
+            json={"expected_revision": 1},
+        )
+        self.assertEqual(cancelled.status_code, 202)
+        self.assertEqual(self.final(active)["status"], "cancelled")
+        for _ in range(100):
+            entry = self.client.get("/v1/control/models").json()["models"][0]
+            if entry["state"] == "disabled":
+                break
+            time.sleep(0.025)
+        self.assertEqual(entry["state"], "disabled", entry)
+        time.sleep(
+            0.2
+        )  # Allow two worker polling intervals against the disabled model.
+        snapshot = self.client.get(f"/v1/runs/{queued}").json()
+        self.assertEqual((snapshot["status"], snapshot["revision"]), ("running", 1))
+        self.assertEqual(self.stub.decision_schemas, [CLARIFICATION])
+
+        enabled = self.client.put(control, json={"enabled": True})
+        self.assertEqual(enabled.status_code, 202, enabled.text)
+        result = self.final(queued)
+        self.assertEqual(
+            (result["status"], result["state"]), ("completed", {"day": "Friday"})
+        )
+        self.assertEqual(self.stub.decision_schemas, [CLARIFICATION, DECISION])
+        self.assertEqual(
+            [event["type"] for event in self.events(queued, cursor=2)],
+            ["action.receipt", "state.committed", "turn.completed", "run.completed"],
+        )
+
     def test_chat_and_mcp_infer(self):
         args = {
             "model": "qwen-local",
@@ -185,6 +242,60 @@ class AgentConformance(unittest.TestCase):
 
 
 class ProviderConformance(unittest.IsolatedAsyncioTestCase):
+    async def test_managed_release_requires_receipt_for_the_exact_runner(self):
+        provider = Ollama(
+            OllamaProfile(
+                model="local",
+                tag="test:1",
+                digest="d" * 64,
+                engine_revision="1.2.3",
+                url="http://offline-test",
+                managed=True,
+            )
+        )
+        unloads = []
+
+        def respond(request):
+            if request.url.path == "/api/version":
+                return httpx.Response(200, json={"version": "1.2.3"})
+            if request.url.path == "/api/tags":
+                return httpx.Response(
+                    200, json={"models": [{"name": "test:1", "digest": "d" * 64}]}
+                )
+            if request.url.path == "/api/chat":
+                return httpx.Response(
+                    200,
+                    json={
+                        "done": True,
+                        "done_reason": "stop",
+                        "message": {"content": "Reply"},
+                    },
+                )
+            self.assertEqual(request.url.path, "/api/generate")
+            unloads.append(json.loads(request.content))
+            tag = "another:1" if len(unloads) == 1 else "test:1"
+            return httpx.Response(
+                200, json={"model": tag, "done": True, "done_reason": "unload"}
+            )
+
+        async with httpx.AsyncClient(
+            base_url=provider.url, transport=httpx.MockTransport(respond)
+        ) as client:
+            provider.client = client
+            self.assertEqual(
+                await provider.complete([{"role": "user", "content": "Hello"}], 16),
+                ("Reply", "stop"),
+            )
+            with self.assertRaises(Problem) as failure:
+                await provider.close()
+            self.assertEqual(failure.exception.code, "provider_release_unverified")
+            self.assertFalse(client.is_closed)
+            await provider.close()
+            self.assertTrue(client.is_closed)
+        self.assertEqual(
+            unloads, [{"model": "test:1", "keep_alive": 0, "stream": False}] * 2
+        )
+
     async def test_exact_serialized_buffered_and_streaming_messages(self):
         config = {
             "VOXRN_AGENT_OLLAMA_URL": "http://offline-test",
@@ -238,6 +349,136 @@ class ProviderConformance(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([body["messages"] for body in bodies], [messages, messages])
         self.assertEqual([body["stream"] for body in bodies], [False, True])
+
+
+class RegistryConformance(unittest.TestCase):
+    def test_decision_schema_discriminates_clarification_and_recording(self):
+        reply = {"reply": "Which day would you like to record?"}
+        for value in (
+            {"action": "clarify", "day": ""},
+            {"action": "record", "day": "Friday"},
+        ):
+            validate({**reply, **value}, DECISION)
+        for value in (
+            {"action": "clarify", "day": "Friday"},
+            {"action": "record", "day": ""},
+            {"action": "record", "day": "today"},
+        ):
+            with self.assertRaises(Problem):
+                validate({**reply, **value}, DECISION)
+
+    def test_file_validates_revisions_and_cannot_alias_a_managed_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "models.json"
+            profile = {
+                "model": "qwen3.5-4b",
+                "tag": "qwen3.5:4b",
+                "digest": "d" * 64,
+                "engine": "ollama",
+                "engine_revision": "0.40.18",
+                "url": "http://127.0.0.1:18435",
+                "managed": True,
+                "think": False,
+            }
+            with patch.dict("os.environ", {"VOXRN_AGENT_MODELS_FILE": str(path)}):
+                path.write_text(json.dumps({"models": [profile]}))
+                providers = load_providers()
+                self.assertEqual(
+                    providers["qwen3.5-4b"].identity["model_revision"], "d" * 64
+                )
+                self.assertFalse(providers["qwen3.5-4b"].profile.thinking)
+                path.write_text(
+                    json.dumps({"models": [profile, {**profile, "model": "other"}]})
+                )
+                with self.assertRaisesRegex(ValueError, "single profile"):
+                    load_providers()
+                path.write_text(
+                    json.dumps({"models": [{**profile, "digest": "latest"}]})
+                )
+                with self.assertRaisesRegex(ValueError, "SHA-256"):
+                    load_providers()
+
+    def test_control_changes_admission_without_retargeting_workflow_or_replay(self):
+        class Candidate(Stub):
+            def __init__(self, model, revision, healthy=True):
+                super().__init__()
+                self.identity = {
+                    **self.identity,
+                    "model": model,
+                    "model_revision": revision,
+                }
+                self.healthy = healthy
+
+            async def ready(self):
+                return self.healthy
+
+            async def stream(self, messages, tokens):
+                yield self.identity["model"], None
+                yield "", "stop"
+
+        self.enterContext(setup_env())
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        legacy = Candidate("qwen-local", "legacy")
+        installed = Candidate("qwen3.5-4b", "new-digest")
+        missing = Candidate("catalog-mismatch", "unavailable", healthy=False)
+        bundle = directory / "bundle"
+        provision(bundle, installed)
+        providers = {p.identity["model"]: p for p in (legacy, installed, missing)}
+        with connect(
+            create_app(
+                providers=providers, directory=directory, workflow_paths=[bundle]
+            )
+        ) as client:
+            models = client.get("/v1/capabilities").json()["models"]
+            self.assertEqual(
+                [
+                    (item["identity"]["model"], item["features"]["workflow"])
+                    for item in models
+                ],
+                [("qwen-local", False), ("qwen3.5-4b", True)],
+            )
+            chat = {
+                "model": "qwen3.5-4b",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+            for stream in (False, True):
+                response = client.post(
+                    "/v1/chat/completions", json={**chat, "stream": stream}
+                )
+                self.assertEqual(response.headers["X-Model-Revision"], "new-digest")
+            args = {"workflow_id": "intake", "workflow_revision": "1.0.0"}
+            first = client.post(
+                "/v1/runs", json=args, headers={"Idempotency-Key": "create"}
+            )
+            self.assertEqual(first.status_code, 201, first.text)
+            run = first.json()
+            self.assertEqual(run["workflow"]["identity"], installed.identity)
+            result = client.put(
+                "/v1/control/models/qwen3.5-4b", json={"enabled": False}
+            )
+            self.assertEqual(result.status_code, 202, result.text)
+            self.assertEqual(client.get("/v1/workflows").json(), {"workflows": []})
+            replay = client.post(
+                "/v1/runs", json=args, headers={"Idempotency-Key": "create"}
+            )
+            self.assertEqual(replay.json(), run)
+            blocked = client.post(
+                f"/v1/runs/{run['id']}/turns",
+                headers={"Idempotency-Key": "turn"},
+                json={"expected_revision": 0, "input": "Please record Friday."},
+            )
+            self.assertEqual(
+                (blocked.status_code, blocked.json()["code"]),
+                (503, "pinned_model_not_ready"),
+            )
+            self.assertEqual(client.get(f"/v1/runs/{run['id']}").json(), run)
+            self.assertEqual(
+                client.post("/v1/chat/completions", json=chat).status_code, 503
+            )
+            other = client.post(
+                "/v1/chat/completions", json={**chat, "model": "qwen-local"}
+            )
+            self.assertEqual(other.headers["X-Model-Revision"], "legacy")
 
 
 class RecoveryConformance(unittest.TestCase):

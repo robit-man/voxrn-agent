@@ -361,6 +361,13 @@ MCP_REQUEST"""
       <audio id="api-audio" controls hidden></audio>
       <a id="api-download" download="voxrn-audio.wav" hidden>Download WAV</a>
       <pre id="api-output" aria-label="Response" tabindex="0"></pre>
+      <details id="model-control">
+        <summary>Manage installed models</summary>
+        <p>Use the service management scope. Disabling stops admission and drains active requests.</p>
+        <button id="models-refresh" type="button">Load model state</button>
+        <p id="models-status" role="status"></p>
+        <ul id="models-list"></ul>
+      </details>
     </section>
     <section id="mcp">
       <h2>MCP</h2>

@@ -888,6 +888,156 @@
           }
         }
       }
+    },
+    "/v1/control/models": {
+      "get": {
+        "operationId": "listInstalledModels",
+        "summary": "Inspect installed model profiles, lifecycle state, and in-flight request counts",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Installed model profiles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledModels"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/v1/control/models/{model_id}": {
+      "put": {
+        "operationId": "setInstalledModelEnabled",
+        "summary": "Enable an installed model or stop admission and drain it",
+        "description": "Persists desired enablement. Poll the model list for the actual result.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEnableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Desired state accepted. Inspect the transition status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledModel"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -900,7 +1050,8 @@
             "scopes": {
               "agent:read": "Read the catalog and authorized runs",
               "agent:run": "Start, advance or cancel authorized runs",
-              "agent:infer": "Run stateless inference"
+              "agent:infer": "Run stateless inference",
+              "agent:manage": "Configure and inspect installed agent model profiles."
             }
           },
           "authorizationCode": {
@@ -909,7 +1060,8 @@
             "scopes": {
               "agent:read": "Read the catalog and authorized runs",
               "agent:run": "Start, advance or cancel authorized runs",
-              "agent:infer": "Run stateless inference"
+              "agent:infer": "Run stateless inference",
+              "agent:manage": "Configure and inspect installed agent model profiles."
             }
           }
         }
@@ -2008,6 +2160,69 @@
           "idempotency_key",
           "expected_revision",
           "run_id"
+        ],
+        "additionalProperties": false
+      },
+      "InstalledModel": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "loading",
+              "ready",
+              "draining",
+              "failed"
+            ]
+          },
+          "active_requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "identity",
+          "enabled",
+          "state",
+          "active_requests"
+        ],
+        "additionalProperties": false
+      },
+      "InstalledModels": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstalledModel"
+            }
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "additionalProperties": false
+      },
+      "ModelEnableRequest": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
         ],
         "additionalProperties": false
       }

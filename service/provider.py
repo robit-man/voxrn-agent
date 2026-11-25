@@ -1,31 +1,72 @@
 """Native Ollama transport for stateless text and source-bound structured requests."""
 
 import os
+from dataclasses import dataclass
 
 import httpx
 
-from .wire import Problem, canonical_json, strict_json
+from .ollama_protocol import chat_packet, chat_payload
+from .wire import Problem, strict_json
 
 
-class Ollama:
-    def __init__(self):
-        self.url = os.environ["VOXRN_AGENT_OLLAMA_URL"].rstrip("/")
-        self.tag = os.environ["VOXRN_AGENT_MODEL_TAG"]
+@dataclass(frozen=True)
+class OllamaProfile:
+    model: str
+    tag: str
+    digest: str
+    engine_revision: str
+    url: str
+    context_tokens: int = 8192
+    thinking: bool | None = None
+    credential_env: str | None = None
+    structured_outputs: bool = True
+    enabled: bool = True
+    managed: bool = False
+
+    @classmethod
+    def from_legacy_environment(cls):
         thinking = os.environ.get("VOXRN_AGENT_THINK")
         if thinking not in (None, "true", "false"):
             raise ValueError("VOXRN_AGENT_THINK must be true or false.")
-        self.thinking = None if thinking is None else thinking == "true"
-        self.context_tokens = int(os.environ.get("VOXRN_AGENT_CONTEXT_TOKENS", "8192"))
+        return cls(
+            model="qwen-local",
+            tag=os.environ["VOXRN_AGENT_MODEL_TAG"],
+            digest=os.environ["VOXRN_AGENT_MODEL_DIGEST"],
+            engine_revision=os.environ["VOXRN_AGENT_ENGINE_REVISION"],
+            url=os.environ["VOXRN_AGENT_OLLAMA_URL"],
+            context_tokens=int(os.environ.get("VOXRN_AGENT_CONTEXT_TOKENS", "8192")),
+            thinking=None if thinking is None else thinking == "true",
+            credential_env="VOXRN_AGENT_PROVIDER_TOKEN",
+        )
+
+
+class Ollama:
+    def __init__(self, profile=None):
+        self.profile = profile or OllamaProfile.from_legacy_environment()
+        self.url = self.profile.url.rstrip("/")
         self.identity = {
-            "model": "qwen-local",
-            "model_revision": os.environ["VOXRN_AGENT_MODEL_DIGEST"],
+            "model": self.profile.model,
+            "model_revision": self.profile.digest,
             "engine": "ollama",
-            "engine_revision": os.environ["VOXRN_AGENT_ENGINE_REVISION"],
+            "engine_revision": self.profile.engine_revision,
+        }
+        self.runner_key = (self.identity["engine"], self.url, self.profile.tag)
+        self.managed = self.profile.managed
+        self.default_enabled = self.profile.enabled
+        self.features = {
+            "chat": True,
+            "chat_stream": True,
+            "structured_outputs": self.profile.structured_outputs,
         }
         self.client = None
+        self._may_be_resident = False
 
     async def start(self):
-        credential = os.environ.get("VOXRN_AGENT_PROVIDER_TOKEN")
+        credential = (
+            os.environ.get(self.profile.credential_env)
+            if self.profile.credential_env
+            else None
+        )
         headers = {"Authorization": f"Bearer {credential}"} if credential else {}
         self.client = httpx.AsyncClient(
             base_url=self.url,
@@ -36,75 +77,55 @@ class Ollama:
         )
 
     async def close(self):
-        if self.client:
-            await self.client.aclose()
+        if self.client is None:
+            return
+        # Only an installer-owned runner is safe to evict. Keep the client for
+        # a subsequent cleanup attempt if the provider cannot verify release.
+        if self.managed and self._may_be_resident:
+            try:
+                await self.require_ready()
+                response = await self.client.post(
+                    "/api/generate",
+                    json={"model": self.profile.tag, "keep_alive": 0, "stream": False},
+                    timeout=15,
+                )
+                response.raise_for_status()
+                receipt = response.json()
+                if (
+                    receipt.get("done") is not True
+                    or receipt.get("done_reason") != "unload"
+                    or receipt.get("model") != self.profile.tag
+                ):
+                    raise ValueError("Ollama did not acknowledge unloading the model.")
+            except (Problem, httpx.HTTPError, ValueError, AttributeError) as exc:
+                raise Problem(
+                    503,
+                    "provider_release_unverified",
+                    "The managed provider could not verify that it released the model.",
+                    retryable=True,
+                ) from exc
+        self._may_be_resident = False
+        client, self.client = self.client, None
+        await client.aclose()
 
     async def ready(self):
+        client = self.client
+        if client is None:
+            return False
         try:
-            version = await self.client.get("/api/version", timeout=3)
-            tags = await self.client.get("/api/tags", timeout=3)
+            version = await client.get("/api/version", timeout=3)
+            tags = await client.get("/api/tags", timeout=3)
             version.raise_for_status()
             tags.raise_for_status()
-            return version.json()["version"] == self.identity[
-                "engine_revision"
-            ] and any(
-                item["name"] == self.tag
-                and item["digest"] == self.identity["model_revision"]
+            return version.json()["version"] == self.profile.engine_revision and any(
+                item["name"] == self.profile.tag
+                and item["digest"] == self.profile.digest
                 for item in tags.json()["models"]
             )
-        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        except (httpx.HTTPError, RuntimeError, ValueError, KeyError, TypeError):
             return False
 
-    def request(self, messages, tokens, stream, schema=None):
-        # Bound input conservatively to leave room for tokenization and chat framing.
-        # Providers can reject smaller requests based on their real context window.
-        byte_count = len(canonical_json(messages).encode("ascii"))
-        if schema:
-            byte_count += len(canonical_json(schema).encode("ascii"))
-        if byte_count + tokens + 512 > self.context_tokens:
-            raise Problem(
-                422,
-                "context_too_large",
-                "The complete request exceeds the configured context bound.",
-            )
-        payload = {
-            "model": self.tag,
-            "messages": messages,
-            "stream": stream,
-            "options": {"num_ctx": self.context_tokens, "num_predict": tokens},
-        }
-        if self.thinking is not None:
-            payload["think"] = self.thinking
-        if schema is not None:
-            payload["format"] = schema
-        return payload
-
-    @staticmethod
-    def parse(packet):
-        try:
-            if (
-                not isinstance(packet, dict)
-                or "error" in packet
-                or type(packet["done"]) is not bool
-            ):
-                raise ValueError
-            content = packet["message"]["content"]
-            if not isinstance(content, str):
-                raise ValueError
-            reason = None
-            if packet["done"]:
-                reason = packet.get("done_reason", "stop")
-                if reason not in ("stop", "length"):
-                    raise ValueError
-            return content, reason
-        except (ValueError, TypeError, KeyError) as exc:
-            raise Problem(
-                502,
-                "provider_protocol",
-                "The provider returned an invalid chat packet.",
-            ) from exc
-
-    async def complete(self, messages, tokens, schema=None):
+    async def require_ready(self):
         if not await self.ready():
             raise Problem(
                 503,
@@ -112,7 +133,13 @@ class Ollama:
                 "The configured provider or model revision is unavailable.",
                 retryable=True,
             )
-        payload = self.request(messages, tokens, False, schema)
+
+    async def complete(self, messages, tokens, schema=None):
+        payload = chat_payload(
+            self.profile, messages, tokens, stream=False, schema=schema
+        )
+        await self.require_ready()
+        self._may_be_resident = True
         try:
             response = await self.client.post("/api/chat", json=payload)
             response.raise_for_status()
@@ -131,7 +158,7 @@ class Ollama:
                 "The inference provider request failed.",
                 retryable=True,
             ) from exc
-        content, reason = self.parse(packet)
+        content, reason = chat_packet(packet)
         if not reason:
             raise Problem(
                 502,
@@ -141,14 +168,9 @@ class Ollama:
         return content, reason
 
     async def stream(self, messages, tokens):
-        if not await self.ready():
-            raise Problem(
-                503,
-                "provider_not_ready",
-                "The configured provider or model revision is unavailable.",
-                retryable=True,
-            )
-        payload = self.request(messages, tokens, True)
+        payload = chat_payload(self.profile, messages, tokens, stream=True)
+        await self.require_ready()
+        self._may_be_resident = True
         try:
             async with self.client.stream(
                 "POST", "/api/chat", json=payload
@@ -158,7 +180,7 @@ class Ollama:
                     if not line:
                         continue
                     try:
-                        chunk, reason = self.parse(strict_json(line))
+                        chunk, reason = chat_packet(strict_json(line))
                     except Problem as exc:
                         raise Problem(
                             502,

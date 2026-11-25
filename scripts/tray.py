@@ -18,6 +18,9 @@ from host import (
     write_settings,
 )
 
+from install_records import own_process
+from models_cli import control
+
 gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as Indicator, Gdk, Gio, GLib, Gtk  # noqa: E402
@@ -44,6 +47,7 @@ class Tray:
             ("Disable service at login", ("disable", "--now")),
         ):
             self.item(label, lambda *_, args=action: self.change(*args))
+        self.item("Models", self.models)
         self.item("Settings", self.settings)
         self.item("Quit tray", lambda *_: Gtk.main_quit())
         self.menu.show_all()
@@ -98,6 +102,66 @@ class Tray:
         config = load_settings(self.path)
         clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
         clipboard.set_text(config["token"], -1)
+
+    def models(self, *_args):
+        try:
+            rows = control(self.path)["models"]
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.message(f"Could not read model state. {exc}")
+            return
+        dialog = Gtk.Dialog(title=f"{NAME} models", flags=0)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6, margin=12)
+        dialog.get_content_area().pack_start(grid, True, True, 0)
+        widgets = {}
+        footer = Gtk.Label(xalign=0)
+
+        def show_state(row):
+            model_id = row["identity"]["model"]
+            button, status = widgets[model_id]
+            label = f"{model_id} · {row['state']} · {row['active_requests']} active"
+            if row.get("error_code"):
+                label += f" · {row['error_code']}"
+            status.set_text(label)
+            button.set_label("Disable" if row["enabled"] else "Enable")
+            button.set_sensitive(row["state"] not in {"loading", "draining"})
+
+        def toggle(button, model_id):
+            try:
+                show_state(control(self.path, model_id, button.get_label() == "Enable"))
+                footer.set_text("")
+            except (OSError, RuntimeError, ValueError) as exc:
+                footer.set_text(str(exc))
+
+        def refresh_models():
+            try:
+                for row in control(self.path)["models"]:
+                    if row["identity"]["model"] in widgets:
+                        show_state(row)
+                footer.set_text("")
+            except (OSError, RuntimeError, ValueError) as exc:
+                footer.set_text(str(exc))
+            return True
+
+        for index, row in enumerate(rows):
+            model_id = row["identity"]["model"]
+            status = Gtk.Label(xalign=0)
+            button = Gtk.Button()
+            widgets[model_id] = button, status
+            button.connect("clicked", toggle, model_id)
+            show_state(row)
+            grid.attach(status, 0, index, 1, 1)
+            grid.attach(button, 1, index, 1, 1)
+        if not rows:
+            footer.set_text("No installed model profiles.")
+        grid.attach(footer, 0, len(rows), 2, 1)
+        dialog.show_all()
+        refresh_timer = GLib.timeout_add_seconds(2, refresh_models)
+        try:
+            dialog.run()
+        finally:
+            GLib.source_remove(refresh_timer)
+            dialog.destroy()
 
     def settings(self, *_args):
         saved = load_settings(self.path)
@@ -180,6 +244,12 @@ def main():
         instance.register(None)
         if instance.get_is_remote():
             return
+    if not args.check:
+        own_process(
+            args.settings.expanduser().resolve(),
+            "tray",
+            load_settings(args.settings).get("install_id"),
+        )
     tray = Tray(args.settings)
     if args.check:
         GLib.idle_add(Gtk.main_quit)

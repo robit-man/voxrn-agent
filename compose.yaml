@@ -1,9 +1,11 @@
-name: voxrn-agent
+name: ${VOXRN_COMPOSE_PROJECT:-voxrn-agent}
 services:
   api:
     build: .
     image: ${VOXRN_CONTAINER_IMAGE:-voxrn-agent:local}
     init: true
+    labels:
+      io.voxrn.installation: "${VOXRN_INSTALL_ID:-unmanaged}"
     user: "${VOXRN_UID:-1000}:${VOXRN_GID:-1000}"
     restart: unless-stopped
     ports:
@@ -27,6 +29,7 @@ services:
       VOXRN_AGENT_MODEL_DIGEST: 7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435
       VOXRN_AGENT_ENGINE_REVISION: "${VOXRN_AGENT_ENGINE_REVISION:-0.40.18}"
       VOXRN_AGENT_WORKFLOW_DIR: /workflow
+      VOXRN_AGENT_MODELS_FILE: "${VOXRN_AGENT_COMPOSE_MODELS_FILE:-}"
     volumes:
       - "${VOXRN_API_DATA_DIR:-${VOXRN_INSTALL_DIR:?Set the provisioned install directory}/data}:/var/lib/voxrn"
       - "${VOXRN_INSTALL_DIR}/workflow:/workflow:ro"
@@ -40,6 +43,8 @@ services:
   ollama:
     image: ollama/ollama:${VOXRN_AGENT_ENGINE_REVISION:-0.40.18}
     init: true
+    labels:
+      io.voxrn.installation: "${VOXRN_INSTALL_ID:-unmanaged}"
     user: "${VOXRN_UID:-1000}:${VOXRN_GID:-1000}"
     restart: unless-stopped
     environment:
@@ -59,3 +64,7 @@ services:
       interval: 10s
       timeout: 4s
       retries: 6
+networks:
+  default:
+    labels:
+      io.voxrn.installation: "${VOXRN_INSTALL_ID:-unmanaged}"

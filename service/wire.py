@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jsonschema import Draft202012Validator
@@ -276,7 +276,9 @@ class Authorization:
         )
 
 
-def build_service(kind, ready, handlers, *, start=None, shutdown=None):
+def build_service(
+    kind, ready, handlers, *, start=None, shutdown=None, model_control=None
+):
     auth = Authorization(kind)
     tools = {}
     scopes = {}
@@ -435,6 +437,19 @@ def build_service(kind, ready, handlers, *, start=None, shutdown=None):
         principal.require([f"{kind}:read"])
         return await handlers[f"{kind}_capabilities"](principal, {})
 
+    if model_control is not None:
+
+        @app.get("/v1/control/models")
+        async def installed_models():
+            CALLER.get().require([f"{kind}:manage"])
+            return model_control.list()
+
+        @app.put("/v1/control/models/{model_id}", status_code=202)
+        async def set_model_enabled(model_id: str, request: Request):
+            CALLER.get().require([f"{kind}:manage"])
+            change = await json_body(request, "ModelEnableRequest", limit=4096)
+            return model_control.set_enabled(model_id, change["enabled"])
+
     @app.get("/.well-known/oauth-protected-resource/mcp")
     async def resource_metadata():
         if not auth.resource:
@@ -462,7 +477,7 @@ def build_service(kind, ready, handlers, *, start=None, shutdown=None):
     app.add_middleware(
         CORSMiddleware,
         allow_origins=sorted(auth.origins),
-        allow_methods=["GET", "POST", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=[
             "Accept",
             "Authorization",

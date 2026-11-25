@@ -83,6 +83,11 @@ def local_env(path, config):
         **os.environ,
         **config["environment"],
         "VOXRN_DATA_DIR": str(path.parent / "data"),
+        "XDG_CACHE_HOME": str(path.parent / "cache"),
+        "HF_HOME": str(path.parent / "cache" / "huggingface"),
+        "HF_HUB_DISABLE_TELEMETRY": "1",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
         "VOXRN_DEV_TOKEN": config["token"],
         "VOXRN_LOCAL_PORT": str(config["port"]),
         "VOXRN_ALLOWED_ORIGINS": " ".join(config["origins"]),
@@ -101,4 +106,6 @@ def ollama_env(path, config):
         "OLLAMA_VULKAN": "0",
         "OLLAMA_NO_CLOUD": "1",
         "OLLAMA_NUM_PARALLEL": "1",
+        "OLLAMA_NOPRUNE": "1",
+        "XDG_CACHE_HOME": str(path.parent / "cache"),
     }

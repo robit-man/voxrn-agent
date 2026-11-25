@@ -150,13 +150,26 @@ class RunStore:
             )
             return result
 
-    def create(self, owner, key, body, workflows):
+    @staticmethod
+    def require_model(workflow, available_models):
+        if available_models is not None:
+            identity = workflow["identity"]
+            if available_models.get(identity["model"]) != identity:
+                raise Problem(
+                    503,
+                    "pinned_model_not_ready",
+                    "The exact model profile pinned by this workflow is unavailable.",
+                    retryable=True,
+                )
+
+    def create(self, owner, key, body, workflows, *, available_models=None):
         def initialize(db):
             workflow = workflows.get((body["workflow_id"], body["workflow_revision"]))
             if workflow is None:
                 raise Problem(
                     404, "workflow_not_found", "The workflow revision is not installed."
                 )
+            self.require_model(workflow.identity, available_models)
             count = db.execute(
                 "SELECT COUNT(*) FROM runs WHERE owner=?", (owner,)
             ).fetchone()[0]
@@ -183,7 +196,7 @@ class RunStore:
 
         return self.command(owner, "create", key, body, initialize)
 
-    def submit(self, owner, run_id, key, body):
+    def submit(self, owner, run_id, key, body, *, available_models=None):
         def apply(db):
             row = self.owned(db, owner, run_id)
             if row["status"] != "ready" or row["rev"] != body["expected_revision"]:
@@ -192,6 +205,7 @@ class RunStore:
                     "run_revision_conflict",
                     "Read the latest ready run before submitting a turn.",
                 )
+            self.require_model(json.loads(row["workflow"]), available_models)
             turn_id = new_id()
             revision = row["rev"] + 1
             db.execute(
@@ -252,7 +266,7 @@ class RunStore:
                 [json.loads(row["value"]) for row in rows],
             )
 
-    def claim(self):
+    def claim(self, unavailable_models=()):
         now = time.time()
         with self.connection(write=True) as db:
             cancelled = db.execute(
@@ -283,8 +297,12 @@ class RunStore:
                 """SELECT j.*, r.workflow, r.state, r.history FROM jobs j
                               JOIN runs r ON j.run_id = r.id
                               WHERE r.status='running' AND j.lease_expires <= ?
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM json_each(?)
+                                    WHERE value = json_extract(r.workflow, '$.identity.model')
+                                )
                               ORDER BY r.touched LIMIT 1""",
-                (now,),
+                (now, json.dumps(sorted(unavailable_models))),
             ).fetchone()
             if not job:
                 return None
@@ -294,6 +312,13 @@ class RunStore:
                 (marker, now + LEASE_SECONDS, job["run_id"]),
             )
             return {**dict(job), "lease": marker}
+
+    def release(self, job):
+        with self.connection(write=True) as db:
+            db.execute(
+                "UPDATE jobs SET lease=NULL, lease_expires=0 WHERE run_id=? AND lease=?",
+                (job["run_id"], job["lease"]),
+            )
 
     def renew(self, job):
         with self.connection(write=True) as db:

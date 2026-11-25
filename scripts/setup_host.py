@@ -32,6 +32,9 @@ from host import (
     write_settings,
 )
 
+from install_records import check_prefix, claim_prefix, install_lock, load_marker
+from provision_models import isolated_env, parse_selection, profiles, provision_profiles
+
 REQUIREMENTS = {
     "asr": "requirements-whisper.txt",
     "tts": "requirements-supertonic.txt",
@@ -71,7 +74,15 @@ def prepare_venv(prefix):
     packages = ["-r", str(ROOT / REQUIREMENTS[KIND])]
     if KIND in ASSETS:
         packages.append("huggingface-hub==0.36.0")
-    run(str(binary), "-m", "pip", "install", "--disable-pip-version-check", *packages)
+    run(
+        str(binary),
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        *packages,
+        env=isolated_env(prefix / "cache"),
+    )
     return binary
 
 
@@ -88,6 +99,7 @@ def download_model(python, prefix):
         *patterns,
         stdout=subprocess.PIPE,
         text=True,
+        env=isolated_env(prefix / "cache"),
     ).stdout.strip()
     return {variable: model}
 
@@ -143,12 +155,22 @@ def ollama_binary(prefix, existing):
     return str(binary)
 
 
-def seed_model_cache(cache, destination):
-    relative = Path("manifests/registry.ollama.ai/library/qwen3/0.6b")
+def manifest_path(tag):
+    if not re.fullmatch(r"[a-z0-9.-]+:[a-z0-9.-]+", tag):
+        raise RuntimeError(
+            "Only pinned Ollama library tags can be provisioned locally."
+        )
+    name, version = tag.split(":")
+    return Path("manifests/registry.ollama.ai/library") / name / version
+
+
+def seed_model_cache(cache, destination, *, tag=QWEN_TAG, expected_digest=None):
+    relative = manifest_path(tag)
+    expected_digest = expected_digest if expected_digest is not None else QWEN_DIGEST
     manifest = cache / relative
     data = json.loads(manifest.read_bytes())
     digests = [item["digest"] for item in [data["config"], *data["layers"]]]
-    if f"sha256:{QWEN_DIGEST}" not in digests:
+    if f"sha256:{expected_digest}" not in digests:
         raise RuntimeError("The model cache does not contain the pinned Qwen weights.")
     for digest in digests:
         if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
@@ -171,10 +193,10 @@ def seed_model_cache(cache, destination):
     shutil.copyfile(manifest, target_manifest)
 
 
-def pull_pinned_model(binary, environment):
+def pull_pinned_model(binary, environment, *, tag=QWEN_TAG):
     for attempt in range(3):
         try:
-            run(binary, "pull", QWEN_TAG, env=environment, timeout=600)
+            run(binary, "pull", tag, env=environment, timeout=600)
             return
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             if attempt == 2:
@@ -186,21 +208,31 @@ def pull_pinned_model(binary, environment):
             time.sleep(3 * (attempt + 1))
 
 
-def prepare_agent(path, config, python, use_managed, model_cache):
+def prepare_agent(path, config, python, use_managed, model_cache, selection, specs):
     prefix = path.parent
     config["ollama_binary"] = ollama_binary(prefix, config.get("ollama_binary"))
     config.setdefault("ollama_port", 8314)
     base_url = f"http://127.0.0.1:{config['ollama_port']}"
     environment = ollama_env(path, config)
+    selected = {"qwen-local": {"tag": QWEN_TAG, "digest": QWEN_DIGEST, "think": False}}
+    for key in selection:
+        if "ollama" in specs[key]:
+            selected[key] = specs[key]["ollama"]
+    entries_by_model = []
     process = None
     if model_cache is not None:
         if not available_port(config["ollama_port"]):
             raise RuntimeError(
                 "Stop the managed Ollama provider before seeding its cache."
             )
-        seed_model_cache(
-            model_cache.expanduser().resolve(), prefix / "models" / "ollama"
-        )
+        model_cache = model_cache.expanduser().resolve()
+        destination = prefix / "models" / "ollama"
+        for profile in selected.values():
+            tag, digest = profile["tag"], profile["digest"]
+            if (model_cache / manifest_path(tag)).is_file():
+                seed_model_cache(
+                    model_cache, destination, tag=tag, expected_digest=digest
+                )
     try:
         if available_port(config["ollama_port"]):
             (prefix / "models" / "ollama").mkdir(
@@ -223,24 +255,43 @@ def prepare_agent(path, config, python, use_managed, model_cache):
         version = wait_endpoint(f"{base_url}/api/version", seconds=30, process=process)[
             "version"
         ]
-        entries = wait_endpoint(f"{base_url}/api/tags", seconds=15, process=process)[
-            "models"
-        ]
-        if not any(
-            item["name"] == QWEN_TAG and item["digest"] == QWEN_DIGEST
-            for item in entries
-        ):
-            pull_pinned_model(config["ollama_binary"], environment)
+        for model_id, profile in selected.items():
+            tag, digest = profile["tag"], profile["digest"]
+            if expected := profile.get("engine_revision"):
+                if version != expected:
+                    raise RuntimeError(
+                        f"{model_id} requires Ollama {expected}, found {version}."
+                    )
             entries = wait_endpoint(
                 f"{base_url}/api/tags", seconds=15, process=process
             )["models"]
-        if not any(
-            item["name"] == QWEN_TAG and item["digest"] == QWEN_DIGEST
-            for item in entries
-        ):
-            raise RuntimeError(
-                "Ollama returned a model digest other than the release pin."
-            )
+            if not any(
+                item["name"] == tag and item["digest"] == digest for item in entries
+            ):
+                pull_pinned_model(config["ollama_binary"], environment, tag=tag)
+                entries = wait_endpoint(
+                    f"{base_url}/api/tags", seconds=15, process=process
+                )["models"]
+            if not any(
+                item["name"] == tag and item["digest"] == digest for item in entries
+            ):
+                raise RuntimeError(
+                    f"Ollama returned a digest other than the pin for {model_id}."
+                )
+            entry = {
+                "model": model_id,
+                "tag": tag,
+                "digest": digest,
+                "engine": "ollama",
+                "engine_revision": version,
+                "url": base_url,
+                "managed": True,
+                "enabled": model_id == "qwen-local",
+            }
+            for field in ("context_tokens", "think", "structured_outputs"):
+                if field in profile:
+                    entry[field] = profile[field]
+            entries_by_model.append(entry)
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
@@ -256,10 +307,22 @@ def prepare_agent(path, config, python, use_managed, model_cache):
         "VOXRN_AGENT_MODEL_DIGEST": QWEN_DIGEST,
         "VOXRN_AGENT_ENGINE_REVISION": version,
     }
+    path_to_models = prefix / "agent-models.json"
+    write_settings(path_to_models, {"models": entries_by_model})
+    write_settings(
+        prefix / "workflow" / "agent-models-compose.json",
+        {
+            "models": [
+                {**entry, "url": "http://ollama:11434"} for entry in entries_by_model
+            ],
+        },
+    )
+    config["environment"]["VOXRN_AGENT_MODELS_FILE"] = str(path_to_models)
     bundle = prefix / "workflow"
     bundle.mkdir(mode=0o700, exist_ok=True)
     run(
         str(python),
+        "-B",
         "-m",
         "examples.intake.prepare",
         "--output-dir",
@@ -287,20 +350,27 @@ def install_files(path, with_tray):
     units.mkdir(parents=True, exist_ok=True)
     launch = " ".join(
         unit_quote(item)
-        for item in (sys.executable, ROOT / "scripts" / "launch.py", path)
+        for item in (sys.executable, "-B", ROOT / "scripts" / "launch.py", path)
     )
     common = "Restart=on-failure\nRestartSec=2s\nUMask=0077\nNoNewPrivileges=yes\n"
+    logs = path.parent / "logs"
+    logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def output(role):
+        path_value = str(logs / f"{role}.log").replace("%", "%%")
+        return f"StandardOutput=append:{path_value}\nStandardError=inherit\n"
+
     dependencies = ""
     if KIND == "agent":
         dependencies = f"Requires={PROVIDER_UNIT}\nAfter={PROVIDER_UNIT}\n"
         provider = (
             f"[Unit]\nDescription=VoxRN Agent local Ollama provider\nPartOf={USER_UNIT}\n"
-            f"[Service]\nExecStart={launch} --ollama\n{common}"
+            f"[Service]\nExecStart={launch} --ollama\n{common}{output('ollama')}"
         )
         (units / PROVIDER_UNIT).write_text(provider)
     service = (
         f"[Unit]\nDescription={NAME} inference service\n{dependencies}"
-        f"[Service]\nExecStart={launch}\n{common}[Install]\nWantedBy=default.target\n"
+        f"[Service]\nExecStart={launch}\n{common}{output('api')}[Install]\nWantedBy=default.target\n"
     )
     (units / USER_UNIT).write_text(service)
     if with_tray:
@@ -308,7 +378,7 @@ def install_files(path, with_tray):
         desktop.mkdir(parents=True, exist_ok=True)
         start = " ".join(
             unit_quote(item, desktop=True)
-            for item in (sys.executable, ROOT / "scripts" / "tray.py", path)
+            for item in (sys.executable, "-B", ROOT / "scripts" / "tray.py", path)
         )
         (desktop / f"{NAME}.desktop").write_text(
             f"[Desktop Entry]\nType=Application\nName={NAME}\nExec={start}\nIcon=network-server\nTerminal=false\n"
@@ -318,8 +388,12 @@ def install_files(path, with_tray):
 
 
 def export_compose(path, config):
+    owner = load_marker(path)
     env = {
         "VOXRN_INSTALL_DIR": str(path.parent),
+        "VOXRN_INSTALL_ID": owner["id"],
+        "VOXRN_COMPOSE_PROJECT": f"{NAME}-{owner['id'][:12]}",
+        "VOXRN_CONTAINER_IMAGE": f"{NAME}:install-{owner['id'][:12]}",
         "VOXRN_DEV_TOKEN": config["token"],
         "VOXRN_UID": str(os.getuid()),
         "VOXRN_GID": str(os.getgid()),
@@ -329,6 +403,7 @@ def export_compose(path, config):
         env["VOXRN_AGENT_ENGINE_REVISION"] = config["environment"][
             "VOXRN_AGENT_ENGINE_REVISION"
         ]
+        env["VOXRN_AGENT_COMPOSE_MODELS_FILE"] = "/workflow/agent-models-compose.json"
     target = path.parent / "compose.env"
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
         temporary = Path(output.name)
@@ -379,7 +454,39 @@ def main():
         action="store_true",
         help="Provision a launchable install without changing services.",
     )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List optional model profiles and features.",
+    )
+    parser.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Provision this optional model profile. Repeat as needed.",
+    )
+    parser.add_argument(
+        "--model-feature",
+        action="append",
+        default=[],
+        metavar="ID:FEATURE",
+        help="Add an optional artifact to a model profile.",
+    )
     args = parser.parse_args()
+    specs = profiles()
+    if args.list_models:
+        for key, spec in specs.items():
+            features = sorted(
+                {
+                    asset["feature"]
+                    for asset in spec.get("assets", [])
+                    if "feature" in asset
+                }
+            )
+            suffix = f" ({', '.join(features)})" if features else ""
+            hardware = f" [{spec['hardware']}]" if spec.get("hardware") else ""
+            print(f"{key}{hardware}{suffix}")
+        return
     path = args.prefix.expanduser().resolve() / "settings.json"
     install = not args.prepare_only
     if sys.version_info < (3, 11):
@@ -390,40 +497,68 @@ def main():
         raise RuntimeError(
             "Start a systemd user session before installing, or use --prepare-only."
         )
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    existing = path.exists()
-    config = (
-        load_settings(path)
-        if existing
-        else {"token": secrets.token_urlsafe(32), "origins": [], "environment": {}}
-    )
-    port = args.port or config.get("port", DEFAULT_PORT)
-    if not available_port(port) and (
-        not existing
-        or not install
-        or port != config["port"]
-        or systemctl("is-active", USER_UNIT, check=False).returncode
-    ):
-        raise RuntimeError(f"Port {port} is occupied. Choose a free --port.")
-    config["port"] = port
-    maybe_ollama = getattr(args, "ollama_port", None)
-    if maybe_ollama:
-        config["ollama_port"] = maybe_ollama
-    if KIND == "agent" and config.get("ollama_port", 8314) == port:
-        raise RuntimeError("The HTTP and Ollama ports must differ.")
-    print(
-        f"{NAME}: provisioning {platform.machine()} CPU inference at {path.parent}.",
-        flush=True,
-    )
-    python = prepare_venv(path.parent)
-    if KIND in ASSETS:
-        config["environment"] = download_model(python, path.parent)
-    else:
-        prepare_agent(
-            path, config, python, existing and install, args.ollama_model_cache
+    check_prefix(path)
+    desktop_file = None
+    with install_lock(path, create=True):
+        owner = claim_prefix(path)
+        existing = path.exists()
+        config = (
+            load_settings(path)
+            if existing
+            else {"token": secrets.token_urlsafe(32), "origins": [], "environment": {}}
         )
-    write_settings(path, config)
-    compose_env = export_compose(path, config)
+        config["install_id"] = owner["id"]
+        selection = parse_selection(
+            config.get("profiles", {}), args.model, args.model_feature, specs
+        )
+        port = args.port or config.get("port", DEFAULT_PORT)
+        if install:
+            unit = CONFIG / "systemd" / "user" / USER_UNIT
+            if unit.is_file() and unit_quote(path) not in unit.read_text():
+                raise RuntimeError(
+                    "A different installation owns the named user service. Use --prepare-only for a second prefix."
+                )
+        if not available_port(port) and (
+            not existing
+            or not install
+            or port != config["port"]
+            or systemctl("is-active", USER_UNIT, check=False).returncode
+        ):
+            raise RuntimeError(f"Port {port} is occupied. Choose a free --port.")
+        config["port"] = port
+        maybe_ollama = getattr(args, "ollama_port", None)
+        if maybe_ollama:
+            config["ollama_port"] = maybe_ollama
+        if KIND == "agent" and config.get("ollama_port", 8314) == port:
+            raise RuntimeError("The HTTP and Ollama ports must differ.")
+        print(
+            f"{NAME}: provisioning {platform.machine()} CPU inference at {path.parent}.",
+            flush=True,
+        )
+        python = prepare_venv(path.parent)
+        if KIND in ASSETS:
+            config["environment"] = download_model(python, path.parent)
+        else:
+            prepare_agent(
+                path,
+                config,
+                python,
+                existing and install,
+                args.ollama_model_cache,
+                selection,
+                specs,
+            )
+        config["profiles"] = selection
+        config["environment"].update(
+            provision_profiles(path.parent, python, selection, specs)
+        )
+        write_settings(path, config)
+        compose_env = export_compose(path, config)
+        if install:
+            desktop_file = install_files(path, not args.no_tray)
+            systemctl("daemon-reload")
+            systemctl("enable", USER_UNIT)
+            systemctl("restart", USER_UNIT)
     print(f"Bearer credential is stored in {path} with mode 0600.", flush=True)
     if not install:
         print(f"Docker Compose environment: {compose_env}", flush=True)
@@ -432,24 +567,27 @@ def main():
             flush=True,
         )
         return
-    desktop_file = install_files(path, not args.no_tray)
-    systemctl("daemon-reload")
-    systemctl("enable", USER_UNIT)
-    systemctl("restart", USER_UNIT)
     service_url = f"http://127.0.0.1:{port}"
-    wait_endpoint(f"{service_url}/readyz", seconds=180)
-    catalog = wait_endpoint(
-        f"{service_url}/v1/capabilities", token=config["token"], seconds=15
+    wait_endpoint(f"{service_url}/livez", seconds=180)
+    model_state = wait_endpoint(
+        f"{service_url}/v1/control/models", token=config["token"], seconds=15
     )
-    if catalog["service"] != KIND or not catalog["models"]:
-        raise RuntimeError("The runtime did not report the expected model catalog.")
+    if any(model["enabled"] for model in model_state["models"]):
+        wait_endpoint(f"{service_url}/readyz", seconds=180)
+        catalog = wait_endpoint(
+            f"{service_url}/v1/capabilities", token=config["token"], seconds=15
+        )
+        if catalog["service"] != KIND or not catalog["models"]:
+            raise RuntimeError("The runtime did not report the expected model catalog.")
+    else:
+        print("The service is up with no models enabled. Use modelctl to activate one.")
     if desktop_file:
         print(
             f"Tray startup entry installed at {desktop_file}. It is loaded on the next desktop login."
         )
         if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
             subprocess.Popen(
-                [sys.executable, str(ROOT / "scripts" / "tray.py"), str(path)],
+                [sys.executable, "-B", str(ROOT / "scripts" / "tray.py"), str(path)],
                 start_new_session=True,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,

@@ -13,9 +13,48 @@ Install `requirements.txt`. Provision a compatible Ollama server and model indep
 | `VOXRN_AGENT_CONTEXT_TOKENS` | Configured provider context window. Defaults to 8192. |
 | `VOXRN_AGENT_THINK` | Optional explicit Ollama thinking mode, `true` or `false`. The installer uses `false` for its small Qwen profile. |
 | `VOXRN_AGENT_PROVIDER_TOKEN` | Optional bearer credential for the trusted provider. |
+| `VOXRN_AGENT_MODELS_FILE` | JSON registry of installed provider profiles. When set, the file defines the model selection. |
 | `VOXRN_AGENT_WORKFLOW_DIR` | Directory containing an admitted workflow bundle. Omit for stateless inference only. |
+| `VOXRN_AGENT_WORKFLOW_DIRS` | Path-separated list of admitted bundle directories. Takes precedence over the single-directory setting. |
 
 The service verifies the engine version and tag digest before provider requests. Prevent provider-side model-tag changes while the service is active. The context gate uses a conservative JSON serialization bound plus output and framing allowances. It rejects oversized requests without dropping messages. Verify actual serialized bodies with the deployed provider before integrating Voryn.
+
+### Installed model registry
+
+Each entry in the registry names a stable public model ID and pins a concrete upstream tag, model digest, engine version, and endpoint. The chat API and MCP `agent_infer` select the profile by public ID. A workflow bundle pins the same full identity and can run only while the matching profile is available.
+
+| Public model ID | Ollama tag | Deployment profile |
+| --- | --- | --- |
+| `qwen-local` | `qwen3:0.6b` | Existing local profile |
+| `qwen3.5-4b` | `qwen3.5:4b` | Compact agent profile |
+| `qwen3.6-27b` | `qwen3.6:27b` | Workstation and server profile |
+| `gemma4-26b` | `gemma4:26b` | Independent workload comparison |
+
+The [installation profiles](scripts/model-profiles.json) record the exact pinned digests. For an independently provisioned Ollama server, install the pinned tag and point a registry entry at that server.
+
+```json
+{
+  "models": [
+    {
+      "model": "qwen3.5-4b",
+      "tag": "qwen3.5:4b",
+      "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+      "engine": "ollama",
+      "engine_revision": "0.40.18",
+      "url": "http://127.0.0.1:11434",
+      "context_tokens": 8192,
+      "think": false,
+      "enabled": true
+    }
+  ]
+}
+```
+
+Use `credential_env` to name an environment variable containing the provider bearer token. Set `structured_outputs` to false for a text-only profile. An entry enabled in configuration supplies an initial preference. Subsequent control decisions persist with the exact model identity. `GET /v1/capabilities` includes profiles that are enabled and whose upstream engine and digest still match.
+
+The `agent:manage` scope grants access to `GET /v1/control/models` and `PUT /v1/control/models/{model_id}` with an `{"enabled":false}` body. Disabling a model blocks new calls and drains active inference. A durable turn accepted before disablement stays queued if the worker has yet to take a provider lease. It retains its run revision and exact idempotent admission response while waiting for re-enablement. Queued turns remain cancellable. Use `managed: true` only with an installer-owned runner and a tag exclusive to the profile. The adapter then verifies Ollama's unload receipt. For externally managed servers, disabling closes the VoxRN client.
+
+The service layer resolves the public model ID and holds the lifecycle lease. The provider adapter opens a transport and verifies its upstream catalog identity. The Ollama interpreter serializes the complete message history and decodes terminal packets. A new engine supplies its own adapter and interpreter and registers its factory in `service/provider_registry.py`. The adapter declares its identity, capabilities, runner ownership and initial availability. It receives the common messages, token budget, and optional workflow schema.
 
 To use the standalone request-recording example, generate its pinned manifest and point the service at its directory.
 
@@ -23,6 +62,8 @@ To use the standalone request-recording example, generate its pinned manifest an
 python -m examples.intake.prepare
 export VOXRN_AGENT_WORKFLOW_DIR="$PWD/examples/intake"
 ```
+
+Use `--model qwen3.5-4b` when preparing the example against that configured profile. Prepare bundles with distinct workflow IDs or revisions when both must be installed. Existing bundles keep their sealed model identities through control-plane changes.
 
 The example workflow uses the `record_intake` entry point and `native_request_log` binding. It commits an explicit weekday and a local recording receipt in one transaction. There is no external executor in this ABI. The workflow authoring pipeline and Voryn-specific retained executables remain in Voryn. To run the example in a container, prepare the bundle outside the image and mount it read-only.
 

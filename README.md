@@ -4,6 +4,7 @@ Stateless text inference and durable, governed execution of versioned agent work
 
 The version 1.0 contract describes the target API. The standalone runtime exposes the capabilities of its configured adapters. See the serving guide for what can run today and the specification for release acceptance criteria.
 
+- [Model profiles, control and uninstall](MODEL_CONTROL.md)
 - [Open-model research and ranked candidates](MODEL_REVIEW.md)
 - [Standalone serving guide](SERVING.md)
 - [Specification, usage and acceptance criteria](SPEC.md)

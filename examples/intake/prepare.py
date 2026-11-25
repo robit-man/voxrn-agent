@@ -6,20 +6,27 @@ from pathlib import Path
 
 import rfc8785
 
-from service.provider import Ollama
+from service.provider_registry import load_providers
 from service.workflows import BINDING_SET, digest
 
 directory = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output-dir", type=Path, default=directory)
-output = parser.parse_args().output_dir
+parser.add_argument("--model", default="qwen-local")
+options = parser.parse_args()
+provider = load_providers().get(options.model)
+if provider is None or not provider.features["structured_outputs"]:
+    parser.error(
+        "--model must name a configured model with structured workflow support."
+    )
+output = options.output_dir
 output.mkdir(parents=True, exist_ok=True)
 example = json.loads(
     (directory.parents[1] / "contracts" / "examples.json").read_text()
 )["workflow_bundle"]
 example.update(
     {
-        "identity": Ollama().identity,
+        "identity": provider.identity,
         "entrypoint": "record_intake",
         "source_sha256": digest((directory / "source.txt").read_bytes()),
         "executable_sha256": digest((directory / "instructions.txt").read_bytes()),

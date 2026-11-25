@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,19 +17,41 @@ BINDING_SET = {
     "record_request": {"binding_id": "native_request_log", "effect": "record"}
 }
 WORKFLOW_SCHEMA = json.loads((CONTRACTS / "workflow-bundle.schema.json").read_text())
+DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def decision_branch(action, day):
+    return {
+        "type": "object",
+        "properties": {
+            "action": {"const": action},
+            "day": day,
+            "reply": {"type": "string", "minLength": 1},
+        },
+        "required": ["action", "day", "reply"],
+        "additionalProperties": False,
+    }
+
+
+CLARIFICATION = decision_branch("clarify", {"const": ""})
 DECISION = {
-    "type": "object",
-    "properties": {
-        "action": {"enum": ["clarify", "record"]},
-        "day": {"type": "string"},
-        "reply": {"type": "string", "minLength": 1},
-    },
-    "required": ["action", "day", "reply"],
-    "additionalProperties": False,
+    "oneOf": [
+        CLARIFICATION,
+        decision_branch("record", {"enum": list(DAYS)}),
+    ],
 }
-DAYS = frozenset(
-    ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-)
+
+
+def authorized_weekday(text):
+    """The intake ABI permits a record with a single explicit weekday and no negation."""
+    if re.search(
+        r"\b(?:no|never|not|cancel|don't|cannot|can't|won't)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return None
+    days = [day for day in DAYS if re.search(rf"\b{day}\b", text, re.IGNORECASE)]
+    return days[0] if len(days) == 1 else None
 
 
 def digest(value):
@@ -90,7 +113,9 @@ class Workflow:
             *history,
             {"role": "user", "content": input_text},
         ]
-        output, reason = await provider.complete(messages, tokens, DECISION)
+        authorized_day = authorized_weekday(input_text)
+        decision_schema = DECISION if authorized_day else CLARIFICATION
+        output, reason = await provider.complete(messages, tokens, decision_schema)
         if reason != "stop":
             raise Problem(
                 502,
@@ -106,29 +131,10 @@ class Workflow:
                 "The provider decision did not match the workflow schema.",
             ) from exc
         if decision["action"] == "clarify":
-            if decision["day"]:
-                raise Problem(
-                    502,
-                    "invalid_workflow_decision",
-                    "A clarification must not claim a date.",
-                )
             return None
-        # The configured sample workflow authorizes an exact, explicit English weekday.
-        # The model cannot manufacture authority to record a date by returning a valid enum.
-        import re
-
-        def matched_days(text):
-            return {
-                day for day in DAYS if re.search(rf"\b{day}\b", text, re.IGNORECASE)
-            }
-
-        negative = re.search(
-            r"\b(?:no|never|not|cancel|don't|cannot|can't|won't)\b",
-            input_text,
-            re.IGNORECASE,
-        )
+        # Also enforce caller authority if the provider ignores its offered schema.
         day = decision["day"]
-        if day not in DAYS or matched_days(input_text) != {day} or negative:
+        if day != authorized_day:
             raise Problem(
                 422,
                 "source_evidence_missing",
@@ -141,11 +147,13 @@ class Workflow:
         return proposed
 
 
-def load_bundle(path, identity):
+def load_bundle(path, identity=None, *, model_identities=None):
     path = Path(path)
     manifest = validate(
         strict_json((path / "manifest.json").read_bytes()), WORKFLOW_SCHEMA
     )
+    if model_identities is not None:
+        identity = model_identities.get(manifest["identity"]["model"])
     source = (path / "source.txt").read_bytes()
     executable = (path / "instructions.txt").read_bytes()
     if (

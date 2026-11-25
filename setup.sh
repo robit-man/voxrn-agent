@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-    exec python3 "$repo_dir/scripts/setup_host.py" "$@"
+if [[ ${1:-} == --help || ${1:-} == -h || ${1:-} == --list-models ]]; then
+    exec python3 -B "$repo_dir/scripts/setup_host.py" "$@"
 fi
 if [[ ! -r /etc/os-release ]] || ! command -v apt-get >/dev/null; then
     printf '%s\n' 'Use Ubuntu 24.04 or Debian 12 for native installation. See DEPLOY.md for Docker.' >&2
@@ -48,4 +48,4 @@ if (( ${#missing[@]} )); then
     sudo apt-get update
     sudo apt-get install -y "${missing[@]}"
 fi
-exec /usr/bin/python3 "$repo_dir/scripts/setup_host.py" "$@"
+exec /usr/bin/python3 -B "$repo_dir/scripts/setup_host.py" "$@"

@@ -136,6 +136,67 @@ function httpRequest(config, headers) {
   return JSON.stringify(JSON.parse(field("body").value));
 }
 
+async function modelControlRequest(model, enabled) {
+  const path = "/v1/control/models" + (model ? `/${encodeURIComponent(model)}` : "");
+  const headers = new Headers();
+  const token = field("token").value.trim();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (model) headers.set("Content-Type", "application/json");
+  const response = await fetch(serviceUrl() + path, {
+    method: model ? "PUT" : "GET",
+    headers,
+    body: model ? JSON.stringify({ enabled }) : undefined,
+    cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5000),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+  return result;
+}
+
+let modelRefreshTimer;
+let modelRefreshVersion = 0;
+
+async function refreshModels() {
+  clearTimeout(modelRefreshTimer);
+  const version = ++modelRefreshVersion;
+  const status = document.getElementById("models-status");
+  const list = document.getElementById("models-list");
+  try {
+    const { models } = await modelControlRequest();
+    if (version !== modelRefreshVersion) return;
+    list.replaceChildren();
+    for (const row of models) {
+      const item = document.createElement("li");
+      const model = row.identity.model;
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.textContent = row.enabled ? "Disable" : "Enable";
+      toggle.addEventListener("click", async () => {
+        toggle.disabled = true;
+        try {
+          await modelControlRequest(model, !row.enabled);
+          await refreshModels();
+        } catch (error) {
+          toggle.disabled = false;
+          status.textContent = error.message;
+        }
+      });
+      item.append(document.createTextNode(
+        `${model} · ${row.state} · ${row.active_requests} active ${row.error_code || ""} `
+      ), toggle);
+      list.append(item);
+    }
+    status.textContent = models.length ? "" : "No installed model profiles.";
+    if (models.some(row => ["loading", "draining"].includes(row.state))) {
+      modelRefreshTimer = setTimeout(refreshModels, 750);
+    }
+  } catch (error) {
+    if (version === modelRefreshVersion) status.textContent = error.message;
+  }
+}
+
+document.getElementById("models-refresh").addEventListener("click", refreshModels);
+
 async function loadConsole() {
   const load = async (path) => {
     const response = await fetch(path);
