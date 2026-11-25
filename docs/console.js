@@ -114,10 +114,16 @@ async function fetchCapabilities() {
   return limits;
 }
 
+for (const control of [field("url"), field("token")]) {
+  control.addEventListener("input", () => document.dispatchEvent(new Event("voxrn:disconnected")));
+}
+
 async function connect() {
+  const restoreFocus = document.activeElement === field("connect");
   field("connect").disabled = true;
   const status = field("connection-status");
   status.textContent = "Connecting…";
+  document.dispatchEvent(new Event("voxrn:disconnected"));
   try {
     if (new URL(serviceUrl()).hostname.endsWith(".trycloudflare.com")) tunnelMode = "quick";
     const limits = await fetchCapabilities();
@@ -126,7 +132,11 @@ async function connect() {
     document.dispatchEvent(new Event("voxrn:connected"));
     field("share").hidden = !tunnelMode;
     const note = tunnelMode === "quick" ? " · Quick Tunnel · SSE requires a named tunnel" : "";
-    status.textContent = `Connected · ${limits.models.length} ready models${note}`;
+    const count = limits.models.length;
+    status.textContent = `Connected · ${count} ready ${count === 1 ? "model" : "models"}${note}`;
+    const disclosure = document.getElementById("runtime-connection");
+    disclosure.open = false;
+    if (restoreFocus) disclosure.querySelector("summary").focus({preventScroll: true});
   } catch (error) {
     status.textContent = error.message;
   } finally {
@@ -306,26 +316,15 @@ function labeledValues(node, rows) {
   node.replaceChildren(...rows.flatMap(([key, value]) => [element("dt", "", key), element("dd", "", value)]));
 }
 
-function healthColor(score) {
-  const stops = [[0, 185, 48, 66], [33, 192, 91, 34], [62, 166, 121, 19], [100, 26, 129, 89]];
-  const index = stops.findIndex(row => row[0] >= score);
-  const high = stops[Math.max(1, index)];
-  const low = stops[Math.max(0, index - 1)];
-  const mix = (score - low[0]) / (high[0] - low[0]);
-  return "rgb(" + low.slice(1).map((value, i) => Math.round(value + (high[i + 1] - value) * mix)).join(",") + ")";
-}
-
 function updateModelHealth(item, health) {
   item.measure.hidden = !health;
   if (!health) return;
-  item.measureName.textContent = health.label + " · " + health.score;
-  item.measureSource.textContent = health.audio_rtf === null || health.audio_rtf === undefined
-    ? health.basis : "RTF " + numberFormat.format(health.audio_rtf) + "×";
+  item.measureName.textContent = health.label + " fit · " + health.score + "/100";
+  item.measureSource.textContent = [health.basis, Number.isFinite(health.audio_rtf) ? "RTF " + numberFormat.format(health.audio_rtf) + "×" : null].filter(Boolean).join(" · ");
   item.meter.setAttribute("aria-valuenow", String(health.score));
   item.meter.setAttribute("aria-valuetext", health.label + ", " + health.score + " out of 100");
   item.meter.title = health.detail.join(" · ");
   item.fill.style.width = health.score + "%";
-  item.fill.style.backgroundColor = healthColor(health.score);
 }
 
 function showModelTest(model) {
@@ -349,11 +348,12 @@ function showModelTest(model) {
 
 function makeModelRow(model, status, list) {
   const item = element("article", "model-row");
+  const cardHead = element("div", "model-card-head");
   const core = element("div", "model-core");
   const heading = element("h3", "", model);
   const characteristics = element("p", "model-characteristics");
   const storage = element("p", "model-storage");
-  core.append(heading, characteristics, storage);
+  core.append(characteristics, storage);
   const measure = element("div", "model-health");
   const captions = element("div", "health-caption");
   const measureName = element("strong", "");
@@ -379,6 +379,8 @@ function makeModelRow(model, status, list) {
   const more = element("dl", "model-more");
   const error = element("p", "model-error");
   more.hidden = true;
+  more.id = "model-details-" + model;
+  details.setAttribute("aria-controls", more.id);
   details.setAttribute("aria-expanded", "false");
   details.addEventListener("click", () => {
     more.hidden = !more.hidden;
@@ -400,13 +402,14 @@ function makeModelRow(model, status, list) {
   toggle.addEventListener("click", () => change(toggle.dataset.enabled !== "true"));
   retry.addEventListener("click", () => change(true));
   buttons.append(details, test, retry, toggle);
-  commands.append(chip, buttons);
+  cardHead.append(heading, chip);
+  commands.append(buttons);
   const progress = element("div", "model-progress");
   const bar = element("progress", "");
   bar.setAttribute("aria-label", model + " installation progress");
   const progressLabel = element("span", "");
   progress.append(progressLabel, bar);
-  item.append(core, commands, progress, error, more);
+  item.append(cardHead, core, progress, error, commands, more);
   list.append(item);
   return {item, characteristics, storage, chip, toggle, test, retry, more, error, progress, bar, progressLabel,
     measure, measureName, measureSource, meter, fill};
@@ -493,6 +496,7 @@ async function refreshModels() {
         modelItems.delete(model);
       }
     }
+    filterModelCards();
     status.textContent = models.length ? "" : "The runtime has no model profiles.";
     if (models.some(row => ["loading", "draining"].includes(row.state))) {
       modelRefreshTimer = setTimeout(async () => {
@@ -511,6 +515,43 @@ document.addEventListener("voxrn:health", event => {
   for (const item of modelItems.values()) updateModelRow(item, item.row);
 });
 document.getElementById("models-refresh").addEventListener("click", refreshModels);
+
+function filterModelCards() {
+  const search = document.getElementById("models-filter").value.trim().toLowerCase();
+  const state = document.getElementById("models-state").value;
+  let shown = 0;
+  for (const {item, row, tags} of modelItems.values()) {
+    const label = [row.identity.model, row.identity.engine, tags?.dataset.tags].filter(Boolean).join(" ").toLowerCase();
+    item.hidden = Boolean((state && row.state !== state) || !label.includes(search));
+    if (!item.hidden) shown++;
+  }
+  const total = modelItems.size;
+  const count = document.getElementById("models-count");
+  const summary = total ? (shown === total ? `${total} profiles` : `${shown} of ${total} profiles`) : "";
+  if (count.textContent !== summary) count.textContent = summary;
+  document.getElementById("models-empty").hidden = !total || shown > 0;
+}
+
+document.getElementById("models-filter").addEventListener("input", filterModelCards);
+document.getElementById("models-state").addEventListener("change", filterModelCards);
+
+const mobileNav = document.querySelector(".mobile-nav");
+mobileNav.addEventListener("click", event => {
+  if (event.target.closest("a")) mobileNav.open = false;
+});
+document.addEventListener("click", event => {
+  if (mobileNav.open && !mobileNav.contains(event.target)) mobileNav.open = false;
+});
+mobileNav.addEventListener("keydown", event => {
+  if (event.key === "Escape" && mobileNav.open) {
+    mobileNav.open = false;
+    mobileNav.querySelector("summary").focus();
+  }
+});
+document.querySelector(".connection-link").addEventListener("click", () => {
+  document.getElementById("runtime-connection").open = true;
+});
+
 
 async function loadConsole() {
   const load = async (path) => {

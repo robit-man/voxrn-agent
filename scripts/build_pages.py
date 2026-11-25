@@ -335,7 +335,7 @@ MCP_REQUEST"""
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="{escape(config["description"], quote=True)}">
-  <title>{title} Console</title>
+  <title>{title} Control center</title>
   <link rel="stylesheet" href="style.css?v={asset_rev}">
   <script src="console.js?v={asset_rev}" defer></script>
   <script src="runtime.js?v={asset_rev}" defer></script>
@@ -345,59 +345,75 @@ MCP_REQUEST"""
   <link rel="service-desc" type="application/json" href="contracts/openapi.json">
 </head>
 <body>
-  <a class="skip-link" href="#runtime">Skip to runtime overview</a>
+  <a class="skip-link" href="#runtime">Skip to utilization</a>
   <header class="topbar">
     <div class="wrap topbar-content">
       <a class="wordmark" href="#runtime">{title}</a>
-      <nav aria-label="Console navigation">
-        <a href="#runtime">Runtime</a>
+      <nav class="desktop-nav" aria-label="Console navigation">
+        <a href="#runtime">Utilization</a>
         <a href="#model-control">Models</a>
         <a href="#console">Requests</a>
         <a href="#integrate">Reference</a>
       </nav>
+      <details class="mobile-nav">
+        <summary>Menu</summary>
+        <nav aria-label="Console navigation">
+        <a href="#runtime">Utilization</a>
+        <a href="#model-control">Models</a>
+        <a href="#console">Requests</a>
+        <a href="#integrate">Reference</a>
+        </nav>
+      </details>
     </div>
   </header>
   <main class="wrap">
     <div class="page-heading">
-      <h1>{title}</h1>
-      <p>{escape(config["description"])}</p>
+      <h1>Control center</h1>
+      <a class="connection-link" href="#runtime-connection">Connection <span aria-hidden="true">↘</span></a>
     </div>
     <section id="runtime" class="panel overview" aria-labelledby="runtime-title">
       <header class="panel-header">
-        <div><h2 id="runtime-title">Runtime overview</h2><p id="runtime-message">Connect to a runtime to see live activity.</p></div>
-        <label class="compact-field">Chart <select id="runtime-series"><option value="load">Models and requests</option><option value="host">Host CPU and memory</option></select></label>
-      </header>
-      <div class="overview-grid">
-        <figure class="trend">
-          <div class="chart-frame"><canvas id="runtime-chart" aria-label="Runtime history"></canvas></div>
-          <figcaption id="runtime-legend" class="legend"></figcaption>
-        </figure>
-        <div class="overview-details">
-          <dl class="runtime-kpis">
-            <div><dt>Loaded models</dt><dd id="runtime-loaded">—</dd></div>
-            <div><dt>Models in use</dt><dd id="runtime-busy">—</dd></div>
-            <div><dt>Active requests</dt><dd id="runtime-active">—</dd></div>
-            <div><dt>Recent clients</dt><dd id="runtime-clients">—</dd></div>
-          </dl>
-          <p id="runtime-client-detail" class="micro">Authenticated clients and open WebSockets.</p>
+        <div>
+          <h2 id="runtime-title">Utilization</h2>
+          <p id="runtime-message">Awaiting connection</p>
         </div>
+        <div class="overview-controls" role="group" aria-label="Chart controls">
+          <label>Window <select id="runtime-window"><option value="60">Last minute</option><option value="300" selected>Last 5 minutes</option><option value="900">Last 15 minutes</option></select></label>
+          <label>Series <select id="runtime-series"><option value="load">Models + requests</option><option value="host">CPU + memory</option></select></label>
+        </div>
+      </header>
+      <dl class="runtime-kpis" aria-label="Current utilization">
+        <div title="Loaded models from the latest runtime sample"><dt>Loaded models</dt><dd id="runtime-loaded">—</dd></div>
+        <div title="Models processing work in the latest runtime sample"><dt>Models in use</dt><dd id="runtime-busy">—</dd></div>
+        <div title="Number of physical requests currently in flight"><dt>Active requests</dt><dd id="runtime-active">—</dd></div>
+        <div title="Distinct authenticated clients within the indicated window"><dt>Recent clients</dt><dd id="runtime-clients">—</dd><p id="runtime-client-detail" class="micro">Authenticated clients</p></div>
+      </dl>
+      <div class="overview-grid">
+        <figure class="trend" aria-label="Utilization history">
+          <div class="trend-heading"><h3>History</h3><div id="runtime-legend" class="legend" aria-label="Chart legend"></div></div>
+          <div class="chart-frame"><canvas id="runtime-chart" role="img" aria-label="Runtime history. Awaiting connection."></canvas></div>
+        </figure>
+        <section class="host-panel" aria-labelledby="host-title">
+          <h3 id="host-title">Host resources</h3>
+          <div id="runtime-host" class="host-strip"><p class="micro">Awaiting connection</p></div>
+        </section>
       </div>
-      <div id="runtime-host" class="host-strip" aria-label="Host specifications"></div>
       <details class="nested activity" id="activity">
-        <summary><strong>Activity and utilization</strong><span>Endpoints, models, and lifecycle</span></summary>
+        <summary><strong>Activity</strong><span>Endpoints, models, and lifecycle</span></summary>
         <div class="disclosure-body">
-          <div class="filters">
-            <label>Window<select id="runtime-window"><option value="60">Last minute</option><option value="300" selected>Last 5 minutes</option><option value="900">Last 15 minutes</option></select></label>
-            <label>Endpoint<select id="runtime-endpoint"><option value="">All endpoints</option></select></label>
-            <label>Model<select id="runtime-model-filter"><option value="">All models</option></select></label>
-            <label>Search<input id="runtime-search" type="search" autocomplete="off" placeholder="Filter visible rows"></label>
+          <div class="activity-tools">
+            <div class="segment" role="group" aria-label="Activity view">
+              <button type="button" data-view="endpoints" aria-pressed="true">Endpoints</button>
+              <button type="button" data-view="models" aria-pressed="false">Models</button>
+              <button type="button" data-view="lifecycle" aria-pressed="false">Lifecycle</button>
+            </div>
+            <div class="filters" role="group" aria-label="Activity filters">
+              <label>Endpoint <select id="runtime-endpoint"><option value="">All endpoints</option></select></label>
+              <label>Model <select id="runtime-model-filter"><option value="">All models</option></select></label>
+              <label>Search <input id="runtime-search" type="search" autocomplete="off" placeholder="Filter visible rows"></label>
+              <label id="runtime-state-filter" hidden>State <select id="runtime-state"><option value="">All states</option><option value="starting">Starting</option><option value="running">Running</option><option value="loading">Loading</option><option value="ready">Ready</option><option value="draining">Draining</option><option value="disabled">Disabled</option><option value="failed">Failed</option><option value="stopping">Stopping</option></select></label>
+            </div>
           </div>
-          <div class="segment" role="group" aria-label="Activity view">
-            <button type="button" data-view="endpoints" aria-pressed="true">Endpoints</button>
-            <button type="button" data-view="models" aria-pressed="false">Models</button>
-            <button type="button" data-view="lifecycle" aria-pressed="false">Lifecycle</button>
-          </div>
-          <label id="runtime-state-filter" class="compact-field" hidden>State <select id="runtime-state"><option value="">All states</option><option value="starting">Starting</option><option value="running">Running</option><option value="loading">Loading</option><option value="ready">Ready</option><option value="draining">Draining</option><option value="disabled">Disabled</option><option value="failed">Failed</option><option value="stopping">Stopping</option></select></label>
           <div id="runtime-table" class="table-scroll" role="region" aria-label="Filtered runtime activity" tabindex="0"></div>
         </div>
       </details>
@@ -413,28 +429,33 @@ MCP_REQUEST"""
         </div>
       </div>
     </details>
-    <div class="dashboard-columns">
-      <section class="panel" id="model-control" aria-labelledby="models-heading">
-        <header class="panel-header">
-          <div><h2 id="models-heading">Model library</h2><p>Enable a profile to install its weights and start its runtime.</p></div>
-          <button id="models-refresh" type="button">Refresh</button>
-        </header>
-        <div class="panel-body models-body">
-          <p id="models-status" class="small-status" role="status">Connect to a runtime to view its models.</p>
-          <div id="models-list" class="model-stack"></div>
-          <details class="nested catalog" id="ollama-catalog">
-            <summary><strong>Ollama catalog</strong><span id="ollama-count"></span></summary>
-            <div class="disclosure-body">
-              <div class="catalog-tools">
-                <label>Filter catalog <input id="ollama-filter" type="search" placeholder="Find an installed tag"></label>
-                <button id="ollama-refresh" type="button">Refresh catalog</button>
-              </div>
-              <p class="small-status" id="ollama-status" role="status"></p>
-              <div id="ollama-models" class="model-stack"></div>
-            </div>
-          </details>
+    <section class="panel" id="model-control" aria-labelledby="models-heading">
+      <header class="panel-header">
+        <div><h2 id="models-heading">Model library</h2><p id="models-count" aria-live="polite"></p></div>
+        <button id="models-refresh" type="button">Refresh models</button>
+      </header>
+      <div class="panel-body models-body">
+        <div class="catalog-toolbar" role="group" aria-label="Model library filters">
+          <label>Search profiles <input id="models-filter" type="search" autocomplete="off" placeholder="Model or engine"></label>
+          <label>State <select id="models-state"><option value="">All states</option><option value="ready">Ready</option><option value="disabled">Disabled</option><option value="loading">Loading</option><option value="draining">Draining</option><option value="failed">Failed</option></select></label>
         </div>
-      </section>
+        <p id="models-status" class="small-status" role="status">Connect to a runtime to view its models.</p>
+        <p id="models-empty" class="small-status" hidden>No matching profiles.</p>
+        <div id="models-list" class="model-stack" aria-label="Model profiles"></div>
+      </div>
+    </section>
+    <details class="panel catalog" id="ollama-catalog">
+      <summary><strong>Ollama catalog</strong><span id="ollama-count"></span></summary>
+      <div class="disclosure-body">
+        <div class="catalog-toolbar catalog-tools" role="group" aria-label="Ollama filters">
+          <label>Search catalog <input id="ollama-filter" type="search" placeholder="Find an installed tag"></label>
+          <button id="ollama-refresh" type="button">Refresh catalog</button>
+        </div>
+        <p class="small-status" id="ollama-status" role="status"></p>
+        <div id="ollama-models" class="model-stack"></div>
+      </div>
+    </details>
+    <div class="workflow-column">
       <section class="panel request" id="console" aria-labelledby="request-title">
         <header class="panel-header">
           <div><h2 id="request-title">Request console</h2><p>Test an HTTP endpoint or MCP tool.</p></div>

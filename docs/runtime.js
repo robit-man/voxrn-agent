@@ -25,22 +25,27 @@ function chart() {
   const width = rect.width, height = rect.height;
   const host = runtimeField("series").value === "host";
   const series = host ? [
-    ["cpu", "Host CPU", "--accent"], ["memory", "Host memory", "--signal-secondary"],
+    ["cpu", "Host CPU", "--plot-primary", "solid"], ["memory", "Host memory", "--plot-secondary", "dash"],
   ] : [
-    ["loaded", "Loaded models", "--accent"], ["busy", "Models in use", "--signal-tertiary"],
-    ["active", "Active requests", "--signal-secondary"],
+    ["loaded", "Loaded models", "--plot-primary", "solid"], ["busy", "Models in use", "--plot-tertiary", "dot"],
+    ["active", "Active requests", "--plot-secondary", "dash"],
   ];
-  legend.replaceChildren(...series.map(([, label, style]) => {
+  legend.replaceChildren(...series.map(([, label, style, pattern]) => {
     const group = element("span", "");
     const swatch = element("i", "");
     swatch.style.setProperty("--series", color(style));
+    swatch.dataset.line = pattern;
+    swatch.setAttribute("aria-hidden", "true");
     group.append(swatch, document.createTextNode(label));
     return group;
   }));
   ctx.font = "11px ui-monospace, monospace";
   ctx.fillStyle = color("--muted");
   if (!snapshot?.samples.length) {
-    ctx.fillText("Waiting for runtime samples", 16, height / 2);
+    const label = snapshot ? "No samples in this window" : "Awaiting runtime samples";
+    canvas.setAttribute("aria-label", "Utilization history. " + label + ".");
+    ctx.textAlign = "center";
+    ctx.fillText(label, width / 2, height / 2);
     return;
   }
   const points = snapshot.samples;
@@ -60,22 +65,39 @@ function chart() {
   }
   const newest = points.at(-1).time;
   const oldest = newest - snapshot.window_seconds;
+  const last = points.at(-1);
+  const minutes = snapshot.window_seconds / 60;
+  canvas.setAttribute("aria-label", `Utilization history over ${minutes} ${minutes === 1 ? "minute" : "minutes"}. Latest sample: ` +
+    series.map(([key, label]) => `${label} ${Number.isFinite(last[key]) ? last[key] + (host ? "%" : "") : "unavailable"}`).join(", ") + ".");
   const x = time => left + (right - left) * Math.max(0, Math.min(1, (time - oldest) / snapshot.window_seconds));
   const y = value => bottom - (bottom - top) * value / ceiling;
-  for (const [key, , stroke] of series) {
-    const coordinates = points.flatMap(point => point[key] === null || point[key] === undefined ? [] : [[x(point.time), y(point[key])]]);
-    if (!coordinates.length) continue;
+  const dashes = {solid: [], dash: [7, 4], dot: [1.5, 4]};
+  for (const [key, , stroke, pattern] of series) {
     ctx.beginPath();
     ctx.strokeStyle = color(stroke);
-    ctx.lineWidth = 1.85;
-    coordinates.forEach(([px, py], index) => index === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash(dashes[pattern]);
+    let previous = false;
+    let lastCoordinate;
+    for (const point of points) {
+      if (!Number.isFinite(point[key])) {
+        previous = false;
+        continue;
+      }
+      lastCoordinate = [x(point.time), y(point[key])];
+      if (previous) ctx.lineTo(...lastCoordinate);
+      else ctx.moveTo(...lastCoordinate);
+      previous = true;
+    }
+    if (!lastCoordinate) continue;
     ctx.stroke();
-    const [px, py] = coordinates.at(-1);
+    const [px, py] = lastCoordinate;
     ctx.beginPath();
     ctx.fillStyle = color(stroke);
     ctx.arc(px, py, 2.8, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.setLineDash([]);
   ctx.fillStyle = color("--muted");
   ctx.fillText("−" + snapshot.window_seconds / 60 + "m", left, height - 8);
   ctx.fillText("Now", right - 21, height - 8);
@@ -84,24 +106,23 @@ function chart() {
 function hostChips(host, storage) {
   const container = runtimeField("host");
   if (!host) {
-    container.replaceChildren();
+    container.replaceChildren(element("p", "micro", "Host resources unavailable"));
     return;
   }
   const metrics = [
-    ["CPU", (host.cpu === null ? "Sampling" : host.cpu + "%") + " · " + host.logical_cpus + " threads"],
+    ["CPU", (host.cpu === null ? "Sampling" : host.cpu + "%") + " · " + host.logical_cpus + " threads · " + host.architecture],
     ["RAM", displayBytes(host.memory_used_bytes) + " / " + displayBytes(host.memory_bytes)],
     ...(storage ? [["Model disk", displayBytes(storage.free_bytes) + " free of " + displayBytes(storage.total_bytes) +
       " · " + storage.source + " mounted at " + storage.mount]] :
       [["Storage", displayBytes(host.filesystem_free_bytes) + " free"]]),
-    ["Host", host.architecture],
   ];
   for (const gpu of host.gpus || []) {
     metrics.push([gpu.name, (gpu.utilization === null ? "" : gpu.utilization + "% · ")
       + displayBytes(gpu.memory_used_mib * 1024 ** 2) + " / " + displayBytes(gpu.memory_total_mib * 1024 ** 2)]);
   }
   container.replaceChildren(...metrics.map(([name, value]) => {
-    const row = element("span", "host-chip");
-    row.append(element("strong", "", name), document.createTextNode(" " + value));
+    const row = element("div", "host-chip");
+    row.append(element("strong", "", name), element("span", "", value));
     return row;
   }));
 }
@@ -132,12 +153,17 @@ function renderTable() {
   headers.forEach(name => {
     const cell = element("th", "", name);
     cell.scope = "col";
+    if (["Active", "Calls", "Errors", "Mean"].includes(name)) cell.className = "numeric";
     headings.append(cell);
   });
   const body = table.createTBody();
   for (const record of rows) {
     const line = body.insertRow();
-    for (const value of record) line.insertCell().textContent = value;
+    record.forEach((value, index) => {
+      const cell = line.insertCell();
+      cell.textContent = value;
+      cell.className = headings.cells[index].className;
+    });
   }
   const offset = runtimeTable.scrollTop;
   runtimeTable.replaceChildren(table);
@@ -151,7 +177,7 @@ function renderSnapshot(response) {
   runtimeField("busy").textContent = latest?.busy ?? "—";
   runtimeField("active").textContent = response.active_requests;
   runtimeField("clients").textContent = response.clients;
-  runtimeField("client-detail").textContent = response.websockets + " open WebSockets · Clients seen in " + response.client_window_seconds + "s";
+  runtimeField("client-detail").textContent = response.websockets + " open WebSockets · " + response.client_window_seconds + "s window";
   const uptime = Math.max(0, Math.floor(Date.now() / 1000 - response.since));
   runtimeField("message").textContent = "Process up " + (uptime < 60 ? uptime + "s" : Math.floor(uptime / 60) + "m") + " · Metrics refresh every 4s";
   hostChips(response.host, response.model_storage);
@@ -175,7 +201,8 @@ async function refreshRuntime() {
     const data = await fetchRuntime("/v1/control/runtime?" + params);
     if (version === refreshVersion) renderSnapshot(data);
   } catch (error) {
-    if (version === refreshVersion) runtimeField("message").textContent = "Runtime metrics unavailable. " + error.message;
+    if (version === refreshVersion) runtimeField("message").textContent =
+      (snapshot ? "Showing last sample · " : "Metrics unavailable · ") + error.message;
   } finally {
     if (version === refreshVersion) refreshTimer = setTimeout(refreshRuntime, 4000);
   }
@@ -184,6 +211,12 @@ async function refreshRuntime() {
 document.addEventListener("voxrn:connected", () => {
   connected = true;
   refreshRuntime();
+});
+document.addEventListener("voxrn:disconnected", () => {
+  connected = false;
+  refreshVersion++;
+  clearTimeout(refreshTimer);
+  runtimeField("message").textContent = snapshot ? "Last sample · disconnected" : "Awaiting connection";
 });
 document.addEventListener("visibilitychange", refreshRuntime);
 document.getElementById("activity").addEventListener("toggle", renderTable);
