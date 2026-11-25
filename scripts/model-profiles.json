@@ -63,6 +63,38 @@
       },
       "disk_mib": 23000,
       "memory_mib": 25000
+    },
+    {
+      "id": "qwen3.6-35b",
+      "ollama": {
+        "tag": "qwen3.6:35b",
+        "digest": "a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c",
+        "engine_revision": "0.40.18",
+        "think": false
+      },
+      "identity": {
+        "model_revision": "a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c",
+        "engine": "ollama",
+        "engine_revision": "0.40.18"
+      },
+      "disk_mib": 29000,
+      "memory_mib": 32768
+    },
+    {
+      "id": "gemma4-12b",
+      "ollama": {
+        "tag": "gemma4:12b",
+        "digest": "6114515d63c17436a7c0417d82820ac65ad643e2806c5a3c89cb62846436ed0b",
+        "engine_revision": "0.40.18",
+        "think": false
+      },
+      "identity": {
+        "model_revision": "6114515d63c17436a7c0417d82820ac65ad643e2806c5a3c89cb62846436ed0b",
+        "engine": "ollama",
+        "engine_revision": "0.40.18"
+      },
+      "disk_mib": 13000,
+      "memory_mib": 16384
     }
   ]
 }

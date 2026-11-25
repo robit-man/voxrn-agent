@@ -157,7 +157,7 @@ class ManagedAdapter:
             ) from exc
         if worker.returncode:
             raise Problem(503, answer["code"], answer["detail"], retryable=True)
-        candidate = self.factory(self.identity["model"], answer["environment"])
+        candidate = self.factory(self.spec, self.settings)
         if candidate.identity != self.identity:
             raise Problem(
                 503,

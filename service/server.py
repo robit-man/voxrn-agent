@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 from .managed_library import ManagedAdapter, configured_defaults, managed_models
 from .model_control import ModelControl
 from .ollama_catalog import OllamaCatalog
-from .provider_registry import load_providers
+from .provider_registry import load_providers, managed_ollama_provider
 from .state import IDEMPOTENCY_TTL, RUN_IDLE_TTL, TERMINAL, RunStore
 from .streaming_policy import (
     BoundedSSE,
@@ -76,9 +76,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
             raise ValueError("Supply either one provider or a provider registry.")
         providers = {provider.identity["model"]: provider}
     if providers is None:
-        providers = managed_models(
-            load_providers(), lambda name, _env: load_providers()[name]
-        )
+        providers = managed_models(load_providers(), managed_ollama_provider)
     directory = Path(directory or os.environ.get("VOXRN_DATA_DIR", ".data"))
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     providers = dict(providers)

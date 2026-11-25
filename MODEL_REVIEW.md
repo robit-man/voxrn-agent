@@ -23,3 +23,31 @@ Use Qwen3.5-4B for the first small-machine comparison, Qwen3.6-27B for a worksta
 2. Assert exact source and history delivery in buffered and streamed provider bodies. Score valid structured finals, required field and branch correctness, typed operation admission, durable writes, and receipt-backed completion separately. Record truncation and reasoning-only output as failures.
 3. Measure TTFT, completed-turn latency and token and memory use on realistic context sizes and concurrency. Report prefill and decoding separately. Compare quantizations against their native or a higher-precision reference on the same workload.
 4. Preserve tests of silence, negation, ambiguous values, missing authority and a failed executor. A schema-valid response earns no state or execution credit unless committed readback and verified receipts agree. Record exact weight revision, tokenizer, parser, runtime and serving flags.
+
+## Local Ollama artifact evidence
+
+The official registry returned exact Q4_K_M manifests for the five local candidates on 2026-11-25. Anonymous HEAD responses for each largest model layer matched its declared byte length. The tags and full manifest digests below identify the published conversion selected by VoxRN. The local managed engine is pinned to Ollama 0.40.18.
+
+| VoxRN model | Ollama tag | Manifest SHA-256 | All layers |
+| --- | --- | --- | ---: |
+| `qwen3.5-4b` | [qwen3.5:4b](https://ollama.com/library/qwen3.5:4b) | `d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04` | 3,324,173,757 bytes |
+| `qwen3.6-27b` | [qwen3.6:27b](https://ollama.com/library/qwen3.6:27b) | `bcbdbd4bcf86f2c4a56cd1698fb31f9434f7dd99752f71b636c750aaa67a49a5` | 17,769,076,719 bytes |
+| `gemma4-26b` | [gemma4:26b](https://ollama.com/library/gemma4:26b) | `001e5dafc3c77684c2307ebc6ab8e336e10c9b18eca52acf547d72fc83c3ca8c` | 18,731,025,387 bytes |
+| `qwen3.6-35b` | [qwen3.6:35b](https://ollama.com/library/qwen3.6:35b) | `a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c` | 22,621,314,161 bytes |
+| `gemma4-12b` | [gemma4:12b](https://ollama.com/library/gemma4:12b) | `6114515d63c17436a7c0417d82820ac65ad643e2806c5a3c89cb62846436ed0b` | 8,021,618,699 bytes |
+
+DeepSeek V4.1 Flash remains a data-center candidate. The official `cloud` and `1017-cloud` tags resolve to manifest `4ac3801a8d7e4cfdbc899090a136adf81dff821ccc600e0c9653e275000127ae` with zero local weight layers. The exact native revision `314113f8a7dadb388215396ba5fbee2c610a04d6` contains 48 safetensors shards totaling 510,296,708,312 bytes. That exceeds the test host's 377 GiB physical RAM. A local run requires an independent backend and a host sized for the checkpoint. Managed Ollama disables cloud inference. [Ollama listing](https://ollama.com/library/deepseek-v4.1-flash) · [Exact native weights](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/tree/314113f8a7dadb388215396ba5fbee2c610a04d6).
+
+## Standalone CPU verification
+
+Five local candidates ran their exact pinned manifests on Ollama 0.40.18 in a disposable managed installation. The HTTP fixture exercised retained chat history in buffered and streaming modes. A separately worded MCP fixture checked whether the model preserved a stated restriction. Each result returned the expected answer, completed normally, and the subsequent disable removed the model from Ollama's active runners. These are transport and basic input-fidelity checks.
+
+| Profile | Buffered request | Streaming request | MCP result |
+| --- | --- | --- | --- |
+| `qwen3.5-4b` | `ca085087f86345ddb3d7a8d7c1a6f910` | `a277a65ad32f48ac88b22e32bf7cd619` | `fe002bb1605241e4b9c72f6a9a400728` |
+| `gemma4-12b` | `b555ffd08bd74f83b7dc7e9c2219eb71` | `b5390a17876e45609b069c2f05acb425` | `66e3033b019042abb8dfa1b4f663f42e` |
+| `qwen3.6-35b` | `f573f6e3e4a640b6a167e94947dc8256` | `7c3cd6f707d74a728d23176954fe9200` | `fa9796a42b354bc6bffc12ac2694d0e4` |
+| `qwen3.6-27b` | `30870fa7ff2d41c5b6ff045378626c69` | `7f45c019f09b446fac0383ae8286c51c` | `692f7a693af843c6870f0d449f187fc5` |
+| `gemma4-26b` | `b243dc367b5b42c4adedbecb1ef95315` | `34457cd2b6a94e7194e33cd6d840fba6` | `a78674d6134e4980b55984fb0f5c35c9` |
+
+An unchanged Gemma 4 12B replay verified the managed provider registry repair against a prefix provisioned before the model was added. A separate download controller reached its deadline while the last large tag was still staging and stopped the isolated provider during an initial Qwen3.6 35B run. The retained pull and release logs identify that interruption. The five receipts above came from completed requests on the pinned local provider after confirmable tag and runner checks. [Managed upgrade issue](https://github.com/robit-man/voxrn-agent/issues/7).

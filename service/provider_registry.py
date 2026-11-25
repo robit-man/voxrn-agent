@@ -60,6 +60,26 @@ def ollama_profile(record):
 PROVIDERS = {"ollama": lambda record: Ollama(ollama_profile(record))}
 
 
+def managed_ollama_provider(spec, settings):
+    name = spec["id"]
+    if provider := load_providers().get(name):
+        return provider
+
+    port = strict_json(settings.read_bytes())["ollama_port"]
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("The managed Ollama port is invalid.")
+    return PROVIDERS["ollama"](
+        {
+            **spec["ollama"],
+            "model": name,
+            "engine": "ollama",
+            "url": f"http://127.0.0.1:{port}",
+            "managed": True,
+            "enabled": False,
+        }
+    )
+
+
 def load_providers():
     filename = os.environ.get("VOXRN_AGENT_MODELS_FILE")
     if not filename:
