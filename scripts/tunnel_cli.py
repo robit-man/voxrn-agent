@@ -11,11 +11,20 @@ import sys
 import tempfile
 import time
 import uuid
+import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlencode
 
-from host import BASE, CONFIG, load_settings, systemctl, unit_quote, write_settings
+from host import (
+    BASE,
+    CONFIG,
+    KIND,
+    load_settings,
+    systemctl,
+    unit_quote,
+    write_settings,
+)
 from install_records import load_marker
 from tunnel_host import (
     DEFAULT_PAGES,
@@ -57,17 +66,37 @@ def status(settings):
     return {"state": "connected", **load_settings(path)}
 
 
-def current(settings):
-    end = time.monotonic() + 35
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def public_ready(response, session):
+    request = urllib.request.Request(
+        response["endpoint"] + "/v1/capabilities",
+        headers={"Authorization": "Bearer " + session["key"]},
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(request, timeout=3) as result:
+            return json.load(result)["service"] == KIND
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+def current(settings, *, reachable=False):
+    end = time.monotonic() + (60 if reachable else 35)
     while time.monotonic() < end:
         response = status(settings)
         if response["state"] == "connected":
-            return response, load_settings(session_path(settings))
+            session = load_settings(session_path(settings))
+            if not reachable or public_ready(response, session):
+                return response, session
         if response["state"] == "stopped":
             break
-        time.sleep(0.25)
+        time.sleep(0.5)
     raise RuntimeError(
-        f"No connected session. Inspect journalctl --user -u {TUNNEL_UNIT}."
+        f"No live tunnel route. Inspect journalctl --user -u {TUNNEL_UNIT}."
     )
 
 
@@ -110,7 +139,7 @@ def start(settings, public_endpoint=None, token_file=None):
     )
     try:
         change_unit("start")
-        return current(settings)
+        return current(settings, reachable=True)
     except (RuntimeError, OSError):
         session_path(settings).unlink(missing_ok=True)
         change_unit("stop")
