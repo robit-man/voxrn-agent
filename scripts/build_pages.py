@@ -307,7 +307,13 @@ MCP_REQUEST"""
     asset_rev = hashlib.sha256(
         b"".join(
             (PAGES / name).read_bytes()
-            for name in ("style.css", "console.js", "runtime.js", "ollama.js")
+            for name in (
+                "style.css",
+                "console.js",
+                "hub-credentials.js",
+                "runtime.js",
+                "ollama.js",
+            )
         )
     ).hexdigest()[:12]
     html = f"""<!doctype html>
@@ -338,6 +344,7 @@ MCP_REQUEST"""
   <title>{title} Control center</title>
   <link rel="stylesheet" href="style.css?v={asset_rev}">
   <script src="console.js?v={asset_rev}" defer></script>
+  <script src="hub-credentials.js?v={asset_rev}" defer></script>
   <script src="runtime.js?v={asset_rev}" defer></script>
   <script src="ollama.js?v={asset_rev}" defer></script>
   <link rel="describedby" href="llms.txt">
@@ -435,6 +442,19 @@ MCP_REQUEST"""
         <button id="models-refresh" type="button">Refresh models</button>
       </header>
       <div class="panel-body models-body">
+        <details class="workflow-details" id="hub-key-settings">
+          <summary>Hugging Face access</summary>
+          <form id="hub-key-form" method="post" autocomplete="off">
+            <p class="small-status" id="hub-key-status" role="status">Connect with model management access.</p>
+            <label>Hugging Face read token
+              <input id="hub-key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="260" aria-describedby="hub-key-status" disabled>
+            </label>
+            <div class="actions">
+              <button id="hub-key-save" type="submit" disabled>Save key</button>
+              <button id="hub-key-remove" type="button" disabled>Remove key</button>
+            </div>
+          </form>
+        </details>
         <div class="catalog-toolbar" role="group" aria-label="Model library filters">
           <label>Search profiles <input id="models-filter" type="search" autocomplete="off" placeholder="Model or engine"></label>
           <label>State <select id="models-state"><option value="">All states</option><option value="ready">Ready</option><option value="disabled">Disabled</option><option value="loading">Loading</option><option value="draining">Draining</option><option value="failed">Failed</option></select></label>

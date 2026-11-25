@@ -390,6 +390,7 @@ def create_app(*, provider=None, providers=None, directory=None, workflow_paths=
         start=start,
         shutdown=stop,
         model_control=control,
+        data_directory=directory,
     )
 
     @app.get("/v1/control/ollama/catalog")

@@ -1,4 +1,4 @@
-# Generated from contracts/openapi.json (SHA-256 d832d2bed1e52c681bb5aad78e1ccc1a19597a6f614a98c9d7d2e8e7113d6155). Do not edit.
+# Generated from contracts/openapi.json (SHA-256 c9c4c7aa5e282d539f4d9d03a54ec5094c6dac9b06994c029242db9e3c4c43f5). Do not edit.
 
 from __future__ import annotations
 
@@ -369,6 +369,14 @@ class OllamaCatalog(TypedDict):
     models: list[OllamaCatalogModel]
 
 
+class HuggingFaceKeyStatus(TypedDict):
+    configured: bool
+
+
+class HuggingFaceKeyRequest(TypedDict):
+    token: str
+
+
 RunEvent = RunStarted | TurnStarted | ReplyDelta | StateCommitted | ActionReceipt | TurnCompleted | RunCompleted | RunCancelled | TurnFailed | RunFailed | RunCancelling
 
 
@@ -468,6 +476,27 @@ _OPERATIONS = {'liveness': ('GET', '/livez', False, (), (), 'application/json', 
                     ('application/json',),
                     'application/json',
                     'body'),
+ 'getHuggingFaceKeyStatus': ('GET',
+                             '/v1/control/huggingface',
+                             True,
+                             (),
+                             (),
+                             'application/json',
+                             None),
+ 'saveHuggingFaceKey': ('PUT',
+                        '/v1/control/huggingface',
+                        True,
+                        (),
+                        ('application/json',),
+                        'application/json',
+                        None),
+ 'removeHuggingFaceKey': ('DELETE',
+                          '/v1/control/huggingface',
+                          True,
+                          (),
+                          (),
+                          'application/json',
+                          None),
  'listInstalledModels': ('GET',
                          '/v1/control/models',
                          True,
@@ -666,6 +695,24 @@ class VoxrnAgentClient:
 
     def chat_completion_stream(self, *, body: ChatRequest) -> AbstractContextManager[httpx.Response]:
         return self._stream("chatCompletion", {"body": body})
+
+    def get_hugging_face_key_status_raw(self) -> httpx.Response:
+        return self._request("getHuggingFaceKeyStatus", {})
+
+    def get_hugging_face_key_status(self) -> HuggingFaceKeyStatus:
+        return self.get_hugging_face_key_status_raw().json()
+
+    def save_hugging_face_key_raw(self, *, body: HuggingFaceKeyRequest) -> httpx.Response:
+        return self._request("saveHuggingFaceKey", {"body": body})
+
+    def save_hugging_face_key(self, *, body: HuggingFaceKeyRequest) -> HuggingFaceKeyStatus:
+        return self.save_hugging_face_key_raw(body=body).json()
+
+    def remove_hugging_face_key_raw(self) -> httpx.Response:
+        return self._request("removeHuggingFaceKey", {})
+
+    def remove_hugging_face_key(self) -> HuggingFaceKeyStatus:
+        return self.remove_hugging_face_key_raw().json()
 
     def list_installed_models_raw(self) -> httpx.Response:
         return self._request("listInstalledModels", {})

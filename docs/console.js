@@ -9,6 +9,7 @@ let request;
 let audioUrl;
 let tunnelMode;
 let runtimeIdentity;
+let workbenchConnection;
 let voices = [];
 let capabilityModels = new Map();
 let runtimeHealth = new Map();
@@ -114,8 +115,20 @@ async function fetchCapabilities() {
   return limits;
 }
 
+function workbenchConnected() {
+  if (!workbenchConnection) return false;
+  try {
+    return workbenchConnection.url === serviceUrl() && workbenchConnection.token === field("token").value.trim();
+  } catch {
+    return false;
+  }
+}
+
 for (const control of [field("url"), field("token")]) {
-  control.addEventListener("input", () => document.dispatchEvent(new Event("voxrn:disconnected")));
+  control.addEventListener("input", () => {
+    workbenchConnection = null;
+    document.dispatchEvent(new Event("voxrn:disconnected"));
+  });
 }
 
 async function connect() {
@@ -123,12 +136,18 @@ async function connect() {
   field("connect").disabled = true;
   const status = field("connection-status");
   status.textContent = "Connecting…";
+  workbenchConnection = null;
   document.dispatchEvent(new Event("voxrn:disconnected"));
   try {
+    const pending = {url: serviceUrl(), token: field("token").value.trim()};
     if (new URL(serviceUrl()).hostname.endsWith(".trycloudflare.com")) tunnelMode = "quick";
     const limits = await fetchCapabilities();
     if (limits.service === "tts") voices = (await fetchRuntime("/v1/voices")).voices;
     await refreshModels();
+    if (pending.url !== serviceUrl() || pending.token !== field("token").value.trim()) {
+      throw new Error("Runtime settings changed. Connect again.");
+    }
+    workbenchConnection = pending;
     document.dispatchEvent(new Event("voxrn:connected"));
     field("share").hidden = !tunnelMode;
     const note = tunnelMode === "quick" ? " · Quick Tunnel · SSE requires a named tunnel" : "";
@@ -566,7 +585,7 @@ async function loadConsole() {
   const configs = new Map();
   for (const [path, methods] of Object.entries(openapi.paths)) {
     for (const [method, spec] of Object.entries(methods)) {
-      if (!spec.responses) continue;
+      if (!spec.responses || spec["x-voxrn-sensitive"]) continue;
       const input = spec.requestBody?.content || {};
       const outputTypes = Object.keys(spec.responses["200"]?.content || {});
       const media = Object.keys(input).find((item) => item === "multipart/form-data" || item.startsWith("audio/"));

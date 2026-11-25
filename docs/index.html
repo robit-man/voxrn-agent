@@ -24,10 +24,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Run stateless text inference and execute versioned workflows with durable state and action receipts.">
   <title>VoxRN Agent Control center</title>
-  <link rel="stylesheet" href="style.css?v=c1aaa6a0aba1">
-  <script src="console.js?v=c1aaa6a0aba1" defer></script>
-  <script src="runtime.js?v=c1aaa6a0aba1" defer></script>
-  <script src="ollama.js?v=c1aaa6a0aba1" defer></script>
+  <link rel="stylesheet" href="style.css?v=f185c37102ea">
+  <script src="console.js?v=f185c37102ea" defer></script>
+  <script src="hub-credentials.js?v=f185c37102ea" defer></script>
+  <script src="runtime.js?v=f185c37102ea" defer></script>
+  <script src="ollama.js?v=f185c37102ea" defer></script>
   <link rel="describedby" href="llms.txt">
   <link rel="alternate" type="text/markdown" href="index.md">
   <link rel="service-desc" type="application/json" href="contracts/openapi.json">
@@ -123,6 +124,19 @@
         <button id="models-refresh" type="button">Refresh models</button>
       </header>
       <div class="panel-body models-body">
+        <details class="workflow-details" id="hub-key-settings">
+          <summary>Hugging Face access</summary>
+          <form id="hub-key-form" method="post" autocomplete="off">
+            <p class="small-status" id="hub-key-status" role="status">Connect with model management access.</p>
+            <label>Hugging Face read token
+              <input id="hub-key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="260" aria-describedby="hub-key-status" disabled>
+            </label>
+            <div class="actions">
+              <button id="hub-key-save" type="submit" disabled>Save key</button>
+              <button id="hub-key-remove" type="button" disabled>Remove key</button>
+            </div>
+          </form>
+        </details>
         <div class="catalog-toolbar" role="group" aria-label="Model library filters">
           <label>Search profiles <input id="models-filter" type="search" autocomplete="off" placeholder="Model or engine"></label>
           <label>State <select id="models-state"><option value="">All states</option><option value="ready">Ready</option><option value="disabled">Disabled</option><option value="loading">Loading</option><option value="draining">Draining</option><option value="failed">Failed</option></select></label>
@@ -271,6 +285,9 @@ MCP_REQUEST</code></pre></details>
 <dt><code>POST /v1/runs/{run_id}/cancel</code></dt><dd>Accept cancellation of a nonterminal run</dd>
 <dt><code>GET /v1/runs/{run_id}/events</code></dt><dd>Replay and follow durable run events</dd>
 <dt><code>POST /v1/chat/completions</code></dt><dd>Stateless text inference</dd>
+<dt><code>GET /v1/control/huggingface</code></dt><dd>Check whether a Hugging Face key is saved</dd>
+<dt><code>PUT /v1/control/huggingface</code></dt><dd>Save or replace the Hugging Face key</dd>
+<dt><code>DELETE /v1/control/huggingface</code></dt><dd>Remove the saved Hugging Face key</dd>
 <dt><code>GET /v1/control/models</code></dt><dd>Inspect installed model profiles, lifecycle state, and in-flight request counts</dd>
 <dt><code>PUT /v1/control/models/{model_id}</code></dt><dd>Enable an installed model or stop admission and drain it</dd>
 <dt><code>GET /v1/control/runtime</code></dt><dd>Inspect utilization of this runtime, models, endpoints and lifecycle</dd>

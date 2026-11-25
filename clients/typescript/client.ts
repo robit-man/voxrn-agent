@@ -1,4 +1,4 @@
-// Generated from contracts/openapi.json (SHA-256 d832d2bed1e52c681bb5aad78e1ccc1a19597a6f614a98c9d7d2e8e7113d6155). Do not edit.
+// Generated from contracts/openapi.json (SHA-256 c9c4c7aa5e282d539f4d9d03a54ec5094c6dac9b06994c029242db9e3c4c43f5). Do not edit.
 
 export interface UploadPart {
   content: Blob
@@ -86,6 +86,10 @@ export type OllamaCatalogProvider = { "url": string; "engine": "ollama"; "engine
 export type OllamaCatalogModel = { "tag": string; "digest": string; "size_bytes": number; "registered_model"?: string }
 
 export type OllamaCatalog = { "provider": OllamaCatalogProvider; "models": Array<OllamaCatalogModel> }
+
+export type HuggingFaceKeyStatus = { "configured": boolean }
+
+export type HuggingFaceKeyRequest = { "token": string }
 
 export class ApiError extends Error {
   readonly status: number
@@ -257,6 +261,35 @@ const OPERATIONS: Record<string, Operation> = {
     ],
     "application/json",
     "body"
+  ],
+  "getHuggingFaceKeyStatus": [
+    "GET",
+    "/v1/control/huggingface",
+    true,
+    [],
+    [],
+    "application/json",
+    null
+  ],
+  "saveHuggingFaceKey": [
+    "PUT",
+    "/v1/control/huggingface",
+    true,
+    [],
+    [
+      "application/json"
+    ],
+    "application/json",
+    null
+  ],
+  "removeHuggingFaceKey": [
+    "DELETE",
+    "/v1/control/huggingface",
+    true,
+    [],
+    [],
+    "application/json",
+    null
   ],
   "listInstalledModels": [
     "GET",
@@ -497,6 +530,30 @@ export class VoxrnAgentClient {
 
   chatCompletionStream(options: { body: ChatRequest; signal?: AbortSignal }): Promise<Response> {
     return this.request("chatCompletion", options, true)
+  }
+
+  getHuggingFaceKeyStatusRaw(options: { signal?: AbortSignal } = {}): Promise<Response> {
+    return this.request("getHuggingFaceKeyStatus", options)
+  }
+
+  async getHuggingFaceKeyStatus(options: { signal?: AbortSignal } = {}): Promise<HuggingFaceKeyStatus> {
+    return (await this.getHuggingFaceKeyStatusRaw(options)).json()
+  }
+
+  saveHuggingFaceKeyRaw(options: { body: HuggingFaceKeyRequest; signal?: AbortSignal }): Promise<Response> {
+    return this.request("saveHuggingFaceKey", options)
+  }
+
+  async saveHuggingFaceKey(options: { body: HuggingFaceKeyRequest; signal?: AbortSignal }): Promise<HuggingFaceKeyStatus> {
+    return (await this.saveHuggingFaceKeyRaw(options)).json()
+  }
+
+  removeHuggingFaceKeyRaw(options: { signal?: AbortSignal } = {}): Promise<Response> {
+    return this.request("removeHuggingFaceKey", options)
+  }
+
+  async removeHuggingFaceKey(options: { signal?: AbortSignal } = {}): Promise<HuggingFaceKeyStatus> {
+    return (await this.removeHuggingFaceKeyRaw(options)).json()
   }
 
   listInstalledModelsRaw(options: { signal?: AbortSignal } = {}): Promise<Response> {

@@ -98,6 +98,9 @@ Check `result.isError` and `result.structuredContent.ok`. Read `data` on success
 - `POST /v1/runs/{run_id}/cancel` — Accept cancellation of a nonterminal run
 - `GET /v1/runs/{run_id}/events` — Replay and follow durable run events
 - `POST /v1/chat/completions` — Stateless text inference
+- `GET /v1/control/huggingface` — Check whether a Hugging Face key is saved
+- `PUT /v1/control/huggingface` — Save or replace the Hugging Face key
+- `DELETE /v1/control/huggingface` — Remove the saved Hugging Face key
 - `GET /v1/control/models` — Inspect installed model profiles, lifecycle state, and in-flight request counts
 - `PUT /v1/control/models/{model_id}` — Enable an installed model or stop admission and drain it
 - `GET /v1/control/runtime` — Inspect utilization of this runtime, models, endpoints and lifecycle

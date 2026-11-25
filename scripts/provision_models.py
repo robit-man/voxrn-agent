@@ -15,10 +15,20 @@ from host import ROOT
 PROFILE_FILE = ROOT / "scripts" / "model-profiles.json"
 KEY = re.compile(r"[a-z][a-z0-9.-]{0,79}")
 ENV = re.compile(r"VOXRN_[A-Z0-9_]+")
-HF_PROGRAM = (
-    "from huggingface_hub import snapshot_download; import sys; print(snapshot_download("
-    "repo_id=sys.argv[1], revision=sys.argv[2], cache_dir=sys.argv[3], allow_patterns=sys.argv[4:]))"
-)
+HF_PROGRAM = """
+import sys
+from pathlib import Path
+
+from huggingface_hub import snapshot_download
+from service.hub_credentials import TOKEN_FILENAME, read_hub_token
+
+repo, revision, assets, data_directory, *patterns = sys.argv[1:]
+token = read_hub_token(Path(data_directory) / TOKEN_FILENAME)
+auth = {"token": token, "endpoint": "https://huggingface.co"} if token else {}
+print(snapshot_download(
+    repo_id=repo, revision=revision, cache_dir=assets, allow_patterns=patterns, **auth
+))
+"""
 
 
 def profiles():
@@ -129,7 +139,7 @@ def verified_file(directory, asset):
     return destination
 
 
-def fetch_snapshot(python, directory, asset):
+def fetch_snapshot(python, directory, asset, data_directory):
     if not re.fullmatch(r"[0-9a-f]{40}", asset["revision"]):
         raise RuntimeError("Model snapshots require full immutable Git revisions.")
     result = subprocess.run(
@@ -140,11 +150,13 @@ def fetch_snapshot(python, directory, asset):
             asset["repo"],
             asset["revision"],
             str(directory),
+            str(data_directory),
             *asset["patterns"],
         ],
         check=True,
         capture_output=True,
         text=True,
+        cwd=ROOT,
         env=isolated_env(directory.parent),
         timeout=1800,
     ).stdout.strip()
@@ -206,7 +218,12 @@ def provision_profiles(prefix, base_python, selection, specs, report=None):
             if "url" in asset:
                 artifact = verified_file(destination / "files", asset)
             else:
-                artifact = fetch_snapshot(base_python, destination / "assets", asset)
+                artifact = fetch_snapshot(
+                    base_python,
+                    destination / "assets",
+                    asset,
+                    Path(os.environ.get("VOXRN_DATA_DIR", prefix / "data")),
+                )
             set_variable(result, asset["env"], str(artifact))
         for variable, value in profile.get("environment", {}).items():
             set_variable(result, variable, value)

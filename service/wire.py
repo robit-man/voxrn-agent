@@ -23,6 +23,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
+from .hub_credentials import (
+    TOKEN_FILENAME,
+    TOKEN_PATTERN,
+    read_hub_token,
+    save_hub_token,
+)
 from .telemetry import RuntimeMiddleware, Telemetry, mark_client, mark_failure
 from .tunnel_access import TunnelAccess, TunnelMiddleware
 
@@ -290,7 +296,14 @@ class Authorization:
 
 
 def build_service(
-    kind, ready, handlers, *, start=None, shutdown=None, model_control=None
+    kind,
+    ready,
+    handlers,
+    *,
+    data_directory,
+    start=None,
+    shutdown=None,
+    model_control=None,
 ):
     auth = Authorization(kind)
     tunnel = TunnelAccess()
@@ -470,6 +483,45 @@ def build_service(
         principal = CALLER.get()
         principal.require([f"{kind}:read"])
         return await handlers[f"{kind}_capabilities"](principal, {})
+
+    hub_token_path = data_directory / TOKEN_FILENAME
+
+    def hub_storage_error():
+        return Problem(
+            503,
+            "huggingface_key_store_unavailable",
+            "The Hugging Face key store is unavailable on this installation.",
+        )
+
+    @app.get("/v1/control/huggingface")
+    async def huggingface_key_status():
+        CALLER.get().require([f"{kind}:manage"])
+        try:
+            configured = read_hub_token(hub_token_path) is not None
+        except OSError:
+            raise hub_storage_error() from None
+        return {"configured": configured}
+
+    @app.put("/v1/control/huggingface")
+    async def set_huggingface_key(request: Request):
+        CALLER.get().require([f"{kind}:manage"])
+        change = await json_body(request, "HuggingFaceKeyRequest", limit=4096)
+        if not TOKEN_PATTERN.fullmatch(change["token"]):
+            raise Problem(400, "invalid_request", "Supply a Hugging Face access token.")
+        try:
+            save_hub_token(hub_token_path, change["token"])
+        except OSError:
+            raise hub_storage_error() from None
+        return {"configured": True}
+
+    @app.delete("/v1/control/huggingface")
+    async def remove_huggingface_key():
+        CALLER.get().require([f"{kind}:manage"])
+        try:
+            hub_token_path.unlink(missing_ok=True)
+        except OSError:
+            raise hub_storage_error() from None
+        return {"configured": False}
 
     if model_control is not None:
 

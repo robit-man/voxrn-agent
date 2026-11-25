@@ -902,6 +902,207 @@
         }
       }
     },
+    "/v1/control/huggingface": {
+      "get": {
+        "operationId": "getHuggingFaceKeyStatus",
+        "summary": "Check whether a Hugging Face key is saved",
+        "description": "Operates on the local installation’s key for Hugging Face model downloads. Responses disclose only whether a key is saved.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "x-voxrn-sensitive": true,
+        "responses": {
+          "200": {
+            "description": "Saved key status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HuggingFaceKeyStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      },
+      "put": {
+        "operationId": "saveHuggingFaceKey",
+        "summary": "Save or replace the Hugging Face key",
+        "description": "Operates on the local installation’s key for Hugging Face model downloads. Responses disclose only whether a key is saved.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "x-voxrn-sensitive": true,
+        "responses": {
+          "200": {
+            "description": "Saved key status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HuggingFaceKeyStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HuggingFaceKeyRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeHuggingFaceKey",
+        "summary": "Remove the saved Hugging Face key",
+        "description": "Operates on the local installation’s key for Hugging Face model downloads. Responses disclose only whether a key is saved.",
+        "security": [
+          {
+            "oauth": [
+              "agent:manage"
+            ]
+          }
+        ],
+        "x-voxrn-sensitive": true,
+        "responses": {
+          "200": {
+            "description": "Saved key status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HuggingFaceKeyStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Service-generated request correlation ID.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                }
+              },
+              "Cache-Control": {
+                "description": "Prevents retention by shared or private HTTP caches.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
     "/v1/control/models": {
       "get": {
         "operationId": "listInstalledModels",
@@ -2873,6 +3074,34 @@
           "models"
         ],
         "additionalProperties": false
+      },
+      "HuggingFaceKeyStatus": {
+        "type": "object",
+        "required": [
+          "configured"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "Whether a key is saved on this installation."
+          }
+        }
+      },
+      "HuggingFaceKeyRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^hf_[A-Za-z0-9_-]{20,257}$",
+            "maxLength": 260,
+            "writeOnly": true
+          }
+        }
       }
     },
     "responses": {

@@ -33,6 +33,18 @@ Register future packages in `scripts/model-profiles.json`. A profile declares a 
 
 Keep engine dependencies and response interpretation inside the adapter or its subprocess. Register with the shared model controller and hold its lease around physical requests, streams and cancellation. Set capabilities only for actually supported operations. Verify both native HTTP and the linked MCP tool, including disabled and unsupported capability cases.
 
+## Hugging Face access
+
+Open **Hugging Face access** in **Model library** after connecting the dashboard with `agent:manage` or an admin tunnel key. Add a Hugging Face read token with access to the repositories you plan to install. For a gated repository, request access on Hugging Face first. **Key saved** confirms that the service stored the token. Successful model installation verifies download access.
+
+The service saves the key in a private file under its data directory. Each managed Hugging Face download reads the saved key at the start of provisioning and sends it only to the official Hub. Replace or remove the key from the same dashboard control. Removing a key takes effect for future downloads and leaves installed models available. Deployments using ambient Hugging Face credentials retain that installation option.
+
+| Endpoint | Effect |
+| --- | --- |
+| `GET /v1/control/huggingface` | Returns `{"configured": true}` or `{"configured": false}` |
+| `PUT /v1/control/huggingface` | Saves the supplied `token` field and returns its configuration status |
+| `DELETE /v1/control/huggingface` | Removes the saved key and returns `{"configured": false}` |
+
 ## Uninstall
 
 ```sh
